@@ -1,12 +1,12 @@
-# Part 8: If Statements
+# 第 8 部分：`if` 语句
 
-Now that we can compare values, it's time to add IF statements to our language. So,
-firstly, let's look at the general syntax of IF statements and how they get converted
-into assembly language.
+现在我们已经可以比较值了，
+是时候给语言加入 `if` 语句了。
+所以先来看看 `if` 语句的一般语法，以及它通常如何被转换成汇编语言。
 
-## The IF Syntax
+## `if` 的语法
 
-The IF statement syntax is:
+`if` 语句的语法是：
 
 ```
   if (condition is true) 
@@ -15,8 +15,8 @@ The IF statement syntax is:
     perform this other block of code
 ```
 
-Now, how is this normally converted into assembly language? It turns out that we
-do the opposite comparison and jump/branch if the opposite comparison is true:
+那么，这种结构通常会怎样被转换成汇编语言呢？
+答案是：我们会做“相反的比较”，如果相反条件为真就跳转：
 
 ```
        perform the opposite comparison
@@ -29,17 +29,18 @@ L2:
    
 ```
 
-where `L1` and `L2` are assembly language labels.
+其中 `L1` 和 `L2` 是汇编标签。
 
-## Generating The Assembly in Our Compiler
+## 在我们的编译器里生成这类汇编
 
-Right now, we output code to set a register based on a comparison, e.g.
+现在，我们生成比较表达式时代码的行为是：
+根据比较结果设置一个寄存器，例如：
 
 ```
    int x; x= 7 < 9;         From input04
 ```
 
-becomes
+会变成：
 
 ```
         movq    $7, %r8
@@ -49,13 +50,13 @@ becomes
         andq    $255,%r9
 ```
 
-But for an IF statement, we need to jump on the opposite comparison:
+但对于 `if` 语句，我们需要在“相反的比较结果成立时跳转”：
 
 ```
    if (7 < 9) 
 ```
 
-should become:
+应该变成：
 
 ```
         movq    $7, %r8
@@ -66,18 +67,22 @@ should become:
 L1:
 ```
 
-So, I've implemented IF statements in this part of our journey. As this is a working
-project, I did have to undo a few things and refactor them as part of the journey.
-I'll try to cover the changes as well as the additions along the way.
+所以，在这一部分的旅程里，我实现了 `if` 语句。
+由于这是一个正在演化的项目，
+我在过程中确实推翻并重构了一些已有实现。
+我会尽量把这些变化和新增内容都一并说明清楚。
 
-## New Tokens and the Dangling Else
+## 新 token 与悬空 `else`
 
-We are going to need a bunch of new tokens in our language. I also (for now) want to
-avoid the [dangling else problem](https://en.wikipedia.org/wiki/Dangling_else). To that
-end, I've changed the grammar so that all groups of statements are wrapped around
-'{'  ... '}' curly brackets; I called such a grouping a "compound statement".
-We also need '(' ... ')' parentheses to hold the IF expression, plus keywords 'if' and
-'else'. Thus, the new tokens are (in `defs.h`):
+我们的语言现在需要一批新的 token。
+同时，我目前也想先避开
+[dangling else problem](https://en.wikipedia.org/wiki/Dangling_else)。
+为此，我修改了语法，
+要求所有语句块都必须用花括号 `'{' ... '}'` 包起来；
+我把这种分组叫做“复合语句（compound statement）”。
+此外，还需要用括号 `'(' ... ')'` 包住 `if` 条件表达式，
+并加入关键字 `if` 与 `else`。
+因此新增的 token 如下（位于 `defs.h`）：
 
 ```c
   T_LBRACE, T_RBRACE, T_LPAREN, T_RPAREN,
@@ -85,11 +90,12 @@ We also need '(' ... ')' parentheses to hold the IF expression, plus keywords 'i
   ..., T_IF, T_ELSE
 ```
 
-## Scanning the Tokens
+## 扫描这些 token
 
-The single-character tokens should be obvious and I won't give the code to scan them.
-The keywords should also be pretty obvious, but I'll give the scanning code from
-`keyword()` in `scan.c`:
+那些单字符 token 的扫描方式都很直接，
+这里就不展开了。
+关键字的处理也很容易理解，
+不过我还是把 `scan.c` 中 `keyword()` 的扫描代码贴出来：
 
 ```c
   switch (*s) {
@@ -110,9 +116,10 @@ The keywords should also be pretty obvious, but I'll give the scanning code from
   }
 ```
 
-## The New BNF Grammar
+## 新的 BNF 语法
 
-Our grammar is starting to get big, so I've rewritten it somewhat:
+我们的语法现在开始变大了，
+所以我对它做了一点重写：
 
 ```
  compound_statement: '{' '}'          // empty, i.e. no statement
@@ -141,19 +148,23 @@ Our grammar is starting to get big, so I've rewritten it somewhat:
  identifier: T_IDENT ;
 ```
 
-I've left out the definition of `true_false_expression`, but at some point when
-we've added a few more operators I'll add it in.
+这里我先省略了 `true_false_expression` 的定义，
+等我们后面再加一些运算符之后，我会把它补完整。
 
-Note the grammar for the IF statement: it's either an `if_head` (with no 'else' clause),
-or an `if_head` followed by a 'else' and a `compound_statement`.
+注意 `if` 语句的语法：
+它要么只是一个 `if_head`（没有 `else`），
+要么是一个 `if_head` 后面再跟着 `else` 和一个 `compound_statement`。
 
-I've separated out all the different statement types to have their own non-terminal
-name. Also, the previous `statements` non-terminal is now the `compound_statement`
-non-terminal, and this requires '{' ... '}' around the statements.
+我把不同类型的语句都拆成了各自独立的非终结符名字。
+另外，之前的 `statements` 非终结符，
+现在被并入了 `compound_statement`，
+而且这意味着语句必须被包在 `'{' ... '}'` 中。
 
-This means that the `compound_statement` in the head is surrounded by '{' ... '}'
-and so is any `compound_statement` after the 'else' keyword. So if we have nested IF
-statements, they have to look like:
+这也就是说，
+`if` 头部里的 `compound_statement` 是一组被 `'{' ... '}'` 包住的语句，
+`else` 后面的 `compound_statement` 也同样如此。
+因此，如果我们写嵌套 `if`，
+就必须长成这样：
 
 ```
   if (condition1 is true) {
@@ -167,12 +178,14 @@ statements, they have to look like:
   }
 ```
 
-and there is no ambiguity about which 'if' each 'else' belongs to. This solves the
-dangling else problem. Later on, I'll make the '{' ... '}' optional.
+这样就不会再有“到底某个 `else` 属于哪个 `if`”的歧义了，
+也就解决了悬空 `else` 问题。
+以后我会把 `'{' ... '}'` 做成可选的。
 
-## Parsing Compound Statements
+## 解析复合语句
 
-The old `void statements()` function is now `compound_statement()` and looks like this:
+原来的 `void statements()` 现在变成了 `compound_statement()`，
+代码如下：
 
 ```c
 // Parse a compound statement
@@ -220,33 +233,39 @@ struct ASTnode *compound_statement(void) {
   }
 ```
 
-Firstly, note that the code forces the parser to match the '{' at the start of the
-compound statement with `lbrace()`, and we can only exit when we've matched the ending
-'}' with `rbrace()`.
+首先要注意，这段代码强制要求解析器在复合语句开头通过 `lbrace()` 匹配 `'{'`，
+并且只有在结尾通过 `rbrace()` 匹配到 `'}'` 时才能退出。
 
-Secondly, note that `print_statement()`, `assignment_statement()` and
-`if_statement()` all return an AST tree, as does `compound_statement()`.
-In our old code, `print_statement()` itself called `genAST()` to evaluate the
-expression, followed by a call to `genprintint()`. Similarly, 
-`assignment_statement()`  also called `genAST()` to do the assignment.
+其次，请注意 `print_statement()`、`assignment_statement()` 和
+`if_statement()` 都会返回一棵 AST，
+`compound_statement()` 本身也是如此。
 
-Well, this means that we have AST trees over here, and others over there. It makes some
-sense to generate just a single AST tree, and call `genAST()` once to generate the
-assembly code for it.
+在旧代码里，`print_statement()` 会自己调用 `genAST()` 求值表达式，
+随后再调用 `genprintint()`。
+类似地，`assignment_statement()` 也会自己调用 `genAST()`
+完成赋值。
 
-This isn't mandatory. For example, SubC only generates ASTs for expressions. For
-the structural parts of the language, like statements, SubC makes specific calls
-to the code generator as I was doing in the previous versions of the compiler.
+这意味着，有些 AST 在这里生成，有些 AST 在那里生成。
+于是，把整段输入统一构造成一棵 AST，
+再只调用一次 `genAST()` 来生成汇编代码，
+就变得更合理了。
 
-I've decided to, for now, generate a single AST tree for the whole input with the
-parser. Once the input has been parsed, the assembly output can be generated from
-the one AST tree.
+这并不是唯一做法。
+例如 SubC 只为表达式生成 AST。
+对于语言结构部分，比如语句，
+SubC 会像我在旧版本编译器里那样，
+直接对代码生成器发出特定调用。
 
-Later on, I'll probably generate an AST tree for each function. Later.
+但我现在决定：先为整个输入构建一棵完整 AST。
+等解析完输入之后，再从这一棵 AST 统一生成汇编输出。
 
-## Parsing the IF Grammar
+后面我大概会改成“每个函数生成一棵 AST”。
+不过那是以后的事。
 
-Because we are a recursive descent parser, parsing the IF statement is not too bad:
+## 解析 `if` 语法
+
+由于我们用的是递归下降解析器，
+解析 `if` 语句本身并不算太难：
 
 ```c
 // Parse an IF statement including
@@ -282,27 +301,30 @@ struct ASTnode *if_statement(void) {
 }
 ```
 
-Right now, I don't want to deal with input like `if (x-2)`, so I've limited
-the binary expression from `binexpr()` to have a root which is one of the
-six comparison operators A_EQ, A_NE, A_LT, A_GT, A_LE or A_GE.
+目前我还不想处理像 `if (x-2)` 这样的输入，
+所以我要求 `binexpr()` 返回的二元表达式，
+其根节点必须是六种比较运算符之一：
+`A_EQ`、`A_NE`、`A_LT`、`A_GT`、`A_LE` 或 `A_GE`。
 
-## The Third Child
+## 第三个孩子节点
 
-I nearly smuggled something past you without properly explaining it. In
-the last line of `if_statement()` I build an AST node with:
+前面我差点偷偷塞过去一个变化而没解释清楚。
+在 `if_statement()` 最后一行里，
+我构造 AST 节点时写的是：
 
 ```c
    mkastnode(A_IF, condAST, trueAST, falseAST, 0);
 ```
 
-That's *three* AST sub-trees! What's going on here? As you can see, the
-IF statement will have three children:
+这里有*三棵* AST 子树！这是什么情况？
+正如你看到的，`if` 语句现在会有三个孩子：
 
-  + the sub-tree that evaluates the condition
-  + the compound statement immediately following
-  + the optional compound statement after the 'else' keyword
+  + 一棵用于计算条件的子树
+  + `if` 后面紧跟的复合语句
+  + 可选的 `else` 后复合语句
 
-So we now need an AST node structure with three children (in `defs.h`):
+因此，AST 节点结构现在也需要支持三个孩子
+（定义于 `defs.h`）：
 
 ```c
 // AST node types.
@@ -324,7 +346,7 @@ struct ASTnode {
 };
 ```
 
-Thus, an A_IF tree looks like this:
+于是，一棵 `A_IF` 树会长成这样：
 
 ```
                       IF
@@ -337,21 +359,23 @@ Thus, an A_IF tree looks like this:
       condition   statements   statements
 ```
 
-## Glue AST Nodes
+## `A_GLUE` AST 节点
 
-There is also a new A_GLUE AST node type. What is this used for? We now
-build a single AST tree with lots of statements, so we need a way to
-glue them together.
+现在还有一个新的 `A_GLUE` AST 节点类型。
+它是干什么用的？
+因为我们现在要为一整个由多条语句组成的输入构建单棵 AST，
+就需要一种把这些语句“粘”在一起的方式。
 
-Review the end of the `compound_statement()` loop code:
+回顾一下 `compound_statement()` 循环末尾的代码：
 
 ```c
       if (left != NULL)
         left = mkastnode(A_GLUE, left, NULL, tree, 0);
 ```
 
-Each time we get a new sub-tree, we glue it on to the existing tree. So,
-for this sequence of statements:
+每当我们得到一棵新的子树，
+就把它粘接到当前已有的树上。
+所以，对下面这样一串语句：
 
 ```
     stmt1;
@@ -360,7 +384,7 @@ for this sequence of statements:
     stmt4;
 ```
 
-we end up with:
+最终会得到：
 
 ```
              A_GLUE
@@ -372,19 +396,20 @@ we end up with:
       stmt1  stmt2
 ```
 
-And, as we traverse the tree depth-first left to right, this still
-generates the assembly code in the correct order.
+由于我们遍历树时仍然是按从左到右的深度优先顺序，
+所以生成出的汇编代码顺序依然是正确的。
 
-## The Generic Code Generator
+## 通用代码生成器
 
-Now that our AST nodes have multiple children, our generic code generator
-is going to become a bit more complicated. Also, for the comparison
-operators, we need to know if we are doing the compare as part of an IF
-statement (jump on the opposite comparison) or a normal expression
-(set register to 1 or 0 on the normal comparison).
+既然 AST 节点现在有了多个孩子，
+我们的通用代码生成器也会变得稍微复杂一点。
+此外，对于比较运算符，
+我们还需要知道当前比较是不是作为 `if` 语句的一部分：
+如果是，那就要在“相反比较成立时跳转”；
+如果不是，那就是普通表达式，需要把寄存器设为 1 或 0。
 
-To this end, I've modified `getAST()` so that we can pass in the
-parent AST nodes operation:
+为此，我修改了 `genAST()`，
+让它可以接收“父 AST 节点的操作类型”：
 
 ```c
 // Given an AST, the register (if any) that holds
@@ -396,9 +421,9 @@ int genAST(struct ASTnode *n, int reg, int parentASTop) {
 }
 ```
 
-### Dealing with Specific AST Nodes
+### 处理特定的 AST 节点
 
-The code in `genAST()` now has to deal with specific AST nodes:
+现在 `genAST()` 必须首先处理一些特殊 AST 节点：
 
 ```c
   // We now have specific AST node handling at the top
@@ -416,8 +441,9 @@ The code in `genAST()` now has to deal with specific AST nodes:
   }
 ```
 
-If we don't return, we carry on to do the normal binary operator AST nodes,
-with one exception: the comparison nodes:
+如果这里没有直接返回，
+后面才会继续进入普通二元运算节点的处理逻辑。
+其中有一个例外：比较节点：
 
 ```c
     case A_EQ:
@@ -435,13 +461,13 @@ with one exception: the comparison nodes:
         return (cgcompare_and_set(n->op, leftreg, rightreg));
 ```
 
-I'll cover the new functions `cgcompare_and_jump()` and
-`cgcompare_and_set()` below.
+下面我会再解释新的 `cgcompare_and_jump()` 和
+`cgcompare_and_set()`。
 
-### Generating the IF Assembly Code
+### 生成 `if` 的汇编代码
 
-We deal with the A_IF AST node with a specific function, along with
-a function to generate new label numbers:
+我们用一个专门函数来处理 `A_IF` 节点，
+同时还加了一个函数来生成新的标签编号：
 
 ```c
 // Generate and return a new label number
@@ -495,7 +521,7 @@ static int genIFAST(struct ASTnode *n) {
 }
 ```
 
-Effectively, the code is doing:
+本质上，这段代码做的事情就是：
 
 ```c
   genAST(n->left, Lfalse, n->op);       // Condition and jump to Lfalse
@@ -506,14 +532,14 @@ Effectively, the code is doing:
   cglabel(Lend);                        // Lend: label
 ```
 
-## The x86-64 Code Generation Functions
+## x86-64 代码生成函数
 
-So we now have a few new x86-64 code generation functions. Some of
-these replace the six `cgXXX()` comparison functions we created in the
-last part of the journey.
+于是我们现在就多了几个新的 x86-64 代码生成函数。
+其中有些会替换上一部分中写的那六个 `cgXXX()` 比较函数。
 
-For the normal comparison functions, we now pass in the AST operation
-to choose the relevant x86-64 `set` instruction:
+对于普通比较函数，
+我们现在直接传入 AST 操作类型，
+用它来选出对应的 x86-64 `set` 指令：
 
 ```c
 // List of comparison instructions,
@@ -536,11 +562,14 @@ int cgcompare_and_set(int ASTop, int r1, int r2) {
 }
 ```
 
-I've also found an x86-64 instruction `movzbq` that moves the lowest byte from
-one register and extends it to fit into a 64-bit register. I'm using that now
-instead of the `and $255` in the old code.
+我还发现 x86-64 有一条 `movzbq` 指令，
+它可以把某个寄存器的最低字节取出来，
+再零扩展成 64 位寄存器。
+于是我现在改用它，
+而不再像以前那样用 `and $255`。
 
-We need a functions to generate a label and to jump to it:
+我们还需要两个函数，
+一个生成标签，一个跳到标签：
 
 ```c
 // Generate a label
@@ -554,9 +583,9 @@ void cgjump(int l) {
 }
 ```
 
-Finally, we need a function to do a comparison and to jump based on
-the opposite comparison. So, using the AST comparison node type, we
-do the opposite comparison:
+最后，我们还需要一个函数，
+能在做比较后，根据“相反的比较结果”为真来跳转。
+所以我们根据 AST 比较节点类型，映射到相反的比较指令：
 
 ```c
 // List of inverted jump instructions,
@@ -577,9 +606,10 @@ int cgcompare_and_jump(int ASTop, int r1, int r2, int label) {
 }
 ```
 
-## Testing the IF Statements
+## 测试 `if` 语句
 
-Do a `make test` which compiles the `input05` file:
+执行一次 `make test`，
+它会编译 `input05`：
 
 ```c
 {
@@ -593,7 +623,7 @@ Do a `make test` which compiles the `input05` file:
 }
 ```
 
-Here's the resulting assembly output:
+下面是生成出来的汇编输出：
 
 ```
         movq    $6, %r8
@@ -615,7 +645,7 @@ L1:
 L2:
 ```
 
-And, of course, `make test` shows:
+当然，`make test` 的结果会告诉我们：
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c
@@ -626,19 +656,22 @@ cc -o out out.s
 6                   # As 6 is less than 12
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We've added our first control structure to our language with the IF statement. I had to
-rewrite a few existing things along the way and, given I don't have a complete
-architectural plan in my head, I'll likely have to rewrite more things in the future.
+我们已经把第一种控制结构 `if` 语句加入了语言。
+在这个过程中，我确实不得不重写一些已有实现；
+而且考虑到我脑子里还没有一份完整的总架构图，
+以后大概还得继续重写别的部分。
 
-The wrinkle for this part of the journey was that we had to perform the opposite
-comparison for the IF decision than what we would do for the normal comparison
-operators. My solution was to inform each AST node of the node type of their parent;
-the comparison nodes can now see if the parent is an A_IF node or not.
+这一部分真正有意思的地方在于：
+为了实现 `if` 决策，
+我们必须执行“和普通比较运算相反的比较跳转”。
+我的做法是，让每个 AST 节点都知道它父节点的类型；
+这样比较节点就能判断自己的父节点是不是 `A_IF`。
 
-I know that Nils Holm chose a different approach when he was implementing SubC, so
-you should look at his code just to see this different solution to the same problem.
+我知道 Nils Holm 在实现 SubC 时采取了另一种方式，
+所以你也应该去看看他的代码，
+比较一下同一个问题还可以怎样解决。
 
-In the next part of our compiler writing journey, we will
-add another control structure: the WHILE loop. [Next step](../09_While_Loops/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会再加入一种控制结构：`while` 循环。 [下一步](../09_While_Loops/Readme.md)
