@@ -1,47 +1,63 @@
-# Part 44: Constant Folding
+# 第 44 部分：常量折叠（constant folding）
 
-In the last part of our compiler writing journey, I realised that I'd
-have to add [constant folding](https://en.wikipedia.org/wiki/Constant_folding)
-as an optimisation, so that I could parse expressions as part of doing
-global variable declarations.
+在上一部分的编译器编写之旅里，
+我意识到：
+为了在处理全局变量声明时
+能够解析表达式，
+我必须给编译器加入
+[常量折叠（constant folding）](https://en.wikipedia.org/wiki/Constant_folding)
+这种优化。
 
-So, in this part, I've added the constant folding optimisation for
-general expressions and in the next part I'll rewrite the code for
-global variable declarations.
+所以这一部分里，
+我先把常量折叠优化加进一般表达式；
+下一部分再去重写全局变量声明的解析代码。
 
-## What is Constant Folding?
+## 什么是常量折叠？
 
-Constant folding is a form of optimisation where an expression can be
-evaluated by the compiler at compile time, instead of generating code
-to evaluate the expression at run time.
+常量折叠是一种优化方式：
+如果某个表达式的值
+可以在编译期就由编译器算出来，
+那就没必要再生成运行期求值代码。
 
-For example, we can see that `x= 5 + 4 * 5;` is really the same as
-`x= 25;`, so we can let the compiler evaluate the expression and just output
-the assembly code for `x= 25;`.
+例如，
+我们一眼就能看出
+`x= 5 + 4 * 5;`
+本质上等价于
+`x= 25;`。
+因此编译器完全可以直接算出结果，
+再只输出 `x= 25;`
+对应的汇编代码。
 
-## So How Do We Do It?
+## 那具体怎么做？
 
-The answer is: look for sub-trees in an AST tree where the leaves are integer
-literals. If there is a binary operation which has two integer
-literals leaves, the compiler can evaluate the expression and replace the
-sub-tree with a single integer literal node.
+答案是：
+在 AST 里寻找那些“叶子节点都是整数字面量”的子树。
+如果某棵二元运算子树
+两边的叶子节点都是整数字面量，
+那编译器就可以直接把它算出来，
+并把整棵子树替换成一个单独的整数字面量节点。
 
-Similarly, if there is a unary operation with an integer literal leaf
-child, then the compiler can also evaluate the expression and replace the
-sub-tree with a single integer literal node.
+同样，
+如果某棵一元运算子树
+它的子节点就是一个整数字面量叶子，
+那也可以直接在编译期把它算掉，
+再把这棵子树替换成一个整数字面量节点。
 
-Once we can do this for sub-trees, we can write a function to traverse the
-entire tree looking for sub-trees to fold. At any node, we can do this
-algorithm:
+当我们能对局部子树这么做之后，
+就可以写一个函数去遍历整棵 AST，
+到处寻找可以折叠的子树。
+在任意节点上，
+大体算法如下：
 
-  1. Try to fold and replace the left child, i.e. recursively.
-  1. Try to fold and replace the right child, i.e. recursively.
-  1. If it's a binary operation with two literals child leaves, fold that.
-  1. If it's a unary operation with one literal child leaf, fold that.
+  1. 先尝试折叠并替换左子节点，也就是递归处理。
+  1. 再尝试折叠并替换右子节点，也就是递归处理。
+  1. 如果当前是一个带两个字面量叶子的二元操作，就折叠它。
+  1. 如果当前是一个带一个字面量叶子的一元操作，也折叠它。
 
-The fact that we replace the sub-trees means we recursively optimise the
-edges of the tree first, then work back up the tree to the root of the
-tree. An example:
+由于我们在过程中会直接替换子树，
+这意味着优化过程会先递归处理树的边缘，
+再一路回卷到树根。
+举个例子：
 
 ```
      *         *        *     50
@@ -51,30 +67,39 @@ tree. An example:
   6 4 8 3      8   3
 ```
 
-## A New File, `opt.c`
+## 新文件：`opt.c`
 
-I've created a new source file for our compiler, `opt.c` and in it I've
-rewritten the same three functions, `fold2()`, `fold1()` and `fold()`
-that are in the [SubC](http://www.t3x.org/subc/) compiler written by
-Nils M Holm.
+我给编译器新建了一个源文件 `opt.c`，
+并在里面重写了和
+[SubC](http://www.t3x.org/subc/)
+编译器相同的三个函数：
+`fold2()`、`fold1()` 和 `fold()`。
+原版作者是 Nils M Holm。
 
-One thing that Nils spends a lot of time in his code is to get the
-calculations correct. This is important when the compiler is a cross-compiler.
-For example, if we do the constant folding on a 64-bit machine, then the
-range we have for integer literals is much bigger than for 32-bit machines.
-Any constant folding we do on the 64-bit machine may not be the same
-result (due to lack of truncation) than the calculation of the same
-expression on a 32-bit machine.
+Nils 在这部分代码里花了很多精力
+去确保计算结果在不同平台上都是正确的。
+这在把编译器做成交叉编译器时尤其重要。
+例如，
+如果你在 64 位机器上执行常量折叠，
+那整数字面量的可表示范围
+就会比 32 位机器大得多。
+于是某些在 64 位机器上折叠出来的结果，
+由于没有发生截断，
+可能会和 32 位机器真正运行时的结果不一致。
 
-I know that this is an important concern, but I will stick with our
-"KISS principle" and write simple code for now. As required, I'll go
-back and fix it.
+我知道这是个很重要的问题，
+但目前我还是继续遵循我们的
+“KISS principle”，
+先把代码写简单。
+等后面需要时再回来补严谨性。
 
-## Folding Binary Operations
+## 折叠二元运算
 
-Here is the code to fold AST sub-trees which are binary operations on
-two children. I'm only folding a few operations; there are many more
-in `expr.c` that we could also fold.
+下面是用来折叠那种
+“两个子节点都是整数字面量”的二元 AST 子树的代码。
+目前我只折叠了少数几种运算；
+`expr.c` 里其实还有不少运算
+后面都可以继续加进来。
 
 ```c
 // Fold an AST tree with a binary operator
@@ -88,9 +113,12 @@ static struct ASTnode *fold2(struct ASTnode *n) {
   rightval = n->right->a_intvalue;
 ```
 
-Another function will call `fold2()` and this ensures that both `n->left`
-and `n->right` are non-NULL pointers to A_INTLIT leaf nodes. Now that we
-have the values from both children, we can get to work.
+另一个函数会负责调用 `fold2()`，
+并保证 `n->left` 和 `n->right`
+都不是 `NULL`，
+而且它们确实都是 `A_INTLIT` 叶子节点。
+既然现在已经拿到了两个子节点的值，
+那就可以开始动手计算了。
 
 ```c
   // Perform some of the binary operations.
@@ -117,12 +145,21 @@ have the values from both children, we can get to work.
   }
 ```
 
-We fold the normal four maths operations. Note the special code for
-division: if we try to divide by zero, the compiler will crash. Instead,
-we leave the sub-tree intact and let the code crash once it becomes
-an executable! Obviously, there is opportunity for a `fatal()` call here.
-We leave the switch statement with a single value `val` that represents
-the calculated value of the sub-tree. Time to replace the sub-tree.
+这里折叠的是最常见的四则运算。
+注意除法分支的特殊处理：
+如果右边是零，
+那就不要尝试去算，
+否则编译器自己会直接崩掉。
+所以我们选择保留原子树不动，
+等它真正变成可执行程序之后再去崩！
+当然，
+这里其实完全有机会直接给一个 `fatal()`。
+
+不管怎样，
+离开这个 `switch` 之后，
+我们就得到一个单独的值 `val`，
+它代表了整棵子树的计算结果。
+接下来就该把原子树替换掉了。
 
 ```c
   // Return a leaf node with the new value
@@ -130,13 +167,18 @@ the calculated value of the sub-tree. Time to replace the sub-tree.
 }
 ```
 
-So a binary AST tree goes in, and a leaf AST node (hopefully) comes out.
+所以，
+输入的是一棵二元 AST 子树，
+输出的
+（如果顺利）
+就是一个新的叶子节点。
 
-## Folding Unary Operations
+## 折叠一元运算
 
-Now that you've seen folding on binary operations, the code for unary
-operations should be straight forward. I am only folding two unary
-operations, but there is room to add more.
+既然你已经看过了二元运算折叠，
+那一元运算这边就应该很好理解了。
+目前我只折叠了两种一元运算，
+但后面还可以继续扩展。
 
 ```c
 // Fold an AST tree with a unary operator
@@ -167,31 +209,32 @@ static struct ASTnode *fold1(struct ASTnode *n) {
 }
 ```
 
-There is one small wrinkle with implementing `fold1()` in our compiler,
-and that is we have AST nodes to widen values from one type to another.
-For example, in this expression `x= 3000 + 1;`, the '1' is parsed as
-a `char` literal. It needs to be widened to be of type `int` so that it
-can be added to the '3000'. The compiler without optimisation generates this
-AST tree:
+不过在我们的编译器里实现 `fold1()`
+有一个小小的弯，
+原因是 `A_WIDEN`。
+来看这个 AST：
 
 ```
-       A_ADD
-      /     \
-  A_INTLIT A_WIDEN
-    3000      \
+            A_WIDEN
+                |
            A_INTLIT
                1
 ```
 
-What we do here is treat the A_WIDEN as a unary AST operation and copy the
-literal value from the child and return a leaf node with the widened type
-and with the literal value.
+这里我们的做法是：
+把 `A_WIDEN`
+也当成一种一元 AST 运算，
+直接把子节点里的字面量值复制出来，
+然后返回一个“类型已经被扩宽”
+且仍然带着同一字面量值的叶子节点。
 
-## Recursively Folding a Whole AST Tree
+## 递归折叠整棵 AST
 
-We have two functions to deal with the edges of the tree. Now we can
-code up the recursive function to optimise the edges and work from the
-edges back up to the root of the tree.
+现在我们已经有了两个函数，
+负责处理树边缘那些可折叠的小子树。
+接下来就可以写一个递归函数，
+先优化边缘，
+再从边缘逐步回卷到树根。
 
 ```c
 // Attempt to do constant folding on
@@ -220,23 +263,38 @@ static struct ASTnode *fold(struct ASTnode *n) {
 }
 ```
 
-The first thing to do is return NULL on a NULL tree. This allows us to
-recursively call `fold()` on this node's children on the following two lines
-of code. We have just optimised the sub-trees below us.
+第一步，
+如果整棵树本身就是 `NULL`，
+那就直接返回 `NULL`。
+这样一来，
+下面两行递归调用 `fold()`
+去处理左右子节点时就安全了。
+换句话说，
+在继续处理当前节点之前，
+我们已经先把下面的子树优化了一遍。
 
-Now, for an AST node with two integer literal leaf children, call `fold2()`
-to optimise them away (if possible). And if we have only one
-integer literal leaf child, call `fold1()` to do the same to it.
+接着，
+如果当前节点的两个子节点
+都是 `A_INTLIT`，
+那就调用 `fold2()`
+尝试把它们折叠掉。
+如果只有一个整数字面量子节点，
+那就改调 `fold1()`。
 
-We either have trimmed the tree, or the tree is unchanged. Either way,
-we can now return it to the recursion level above us.
+无论最后是树被裁短了，
+还是保持不变，
+现在都可以把这棵
+“可能已经修改过的树”
+返回给更上一层递归。
 
-## A Generic Optimisation Function
+## 一个通用优化入口函数
 
-Constant folding is only one optimisation we can do on our AST tree; there
-will be others later. Thus, it makes sense to write a front-end function
-that applies all the optimisations to the tree. Here it is with just
-constant folding:
+常量折叠只是 AST 上可能做的优化之一；
+后面还会有别的优化。
+因此写一个前端入口函数，
+统一把所有优化应用到树上，
+是很合理的。
+目前它只有常量折叠：
 
 ```c
 // Optimise an AST tree by
@@ -247,8 +305,13 @@ struct ASTnode *optimise(struct ASTnode *n) {
 }
 ```
 
-We can  extend it later. This gets called in `function_declaration()` in `decl.c`.
-Once we have parsed a function and its body, we put the A_FUNCTION node on the top of the tree, and:
+后面可以随时继续往里扩。
+这个函数会在 `decl.c`
+的 `function_declaration()` 中被调用。
+也就是说，
+当我们完成一个函数及其函数体的解析，
+把 `A_FUNCTION` 节点挂到树顶之后，
+就会这样做：
 
 ```c
   // Build the A_FUNCTION node which has the function's symbol pointer
@@ -259,10 +322,10 @@ Once we have parsed a function and its body, we put the A_FUNCTION node on the t
   tree= optimise(tree);
 ```
 
-## An Example Function
+## 一个示例函数
 
-The following program, `tests/input111.c`, should put the folding code
-through its paces.
+下面这个程序 `tests/input111.c`
+应该足够把折叠代码跑一遍了：
 
 ```c
 #include <stdio.h>
@@ -273,8 +336,11 @@ int main() {
 }
 ```
 
-The compiler should replace the initialisation with `x=2029;`. Let's do
-a `cwj -T -S tests/input111.c` and see:
+编译器理应把这个初始化
+直接替换成 `x=2029;`。
+那我们执行一次
+`cwj -T -S tests/input111.c`
+看看：
 
 ```
 $ ./cwj -T -S z.c
@@ -288,14 +354,17 @@ $ ./tests/input111
 2029
 ```
 
-It seems to work, and the compiler still passes all 110 previous tests, so
-for now it does its job.
+看起来是正常工作的。
+而且编译器仍然通过了此前 110 个测试，
+所以至少目前它已经能完成自己的任务。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I was going to leave optimisation to the end of our journey, but I think
-it's good to see one type of optimisation now.
+我本来打算把优化一直留到系列末尾再讲，
+但现在先看到一种优化实现，
+其实也挺不错。
 
-In the next part of our compiler writing journey, we will replace our
-current global declaration parser with code that evaluates expressions
-using `binexpr()` and this new constant folding code. [Next step](../45_Globals_Again/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会把当前的全局声明解析器替换掉，
+改成通过 `binexpr()` 配合这套新的常量折叠代码
+来求值表达式。 [下一步](../45_Globals_Again/Readme.md)

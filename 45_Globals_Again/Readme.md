@@ -1,37 +1,54 @@
-# Part 45: Global Variable Declarations, revisited
+# 第 45 部分：重新审视全局变量声明
 
-Two parts ago, I was trying to compile this line:
+两部分之前，
+我还在试着编译下面这一行代码：
 
 ```c
 enum { TEXTLEN = 512 };         // Length of identifiers in input
 extern char Text[TEXTLEN + 1];
 ```
 
-and realised that our declaration parsing code could only deal with
-a single integer literal as the size of an array. But my compiler
-code, as shown above, uses an expression with two integer literals.
+然后我才发现：
+我们当前的声明解析代码，
+只能处理“数组大小是单个整数字面量”的情况。
+但上面这份编译器源码里，
+数组大小用到的却是一个由两个整数字面量构成的表达式。
 
-In the last part, I added constant folding to the compiler so that
-an expression of integer literals will be folded down to a single
-integer literal.
+而在上一部分里，
+我已经给编译器加上了常量折叠，
+这样一来，
+只要表达式全部由整数字面量组成，
+它最终就能被折叠成一个单独的整数字面量。
 
-Now we need to discard all of that  wonderful hand-written parsing of
-the literal value and associated casting, and call our expression
-parser to get an AST tree with the literal value in it.
+所以现在，
+我们需要把之前那些手写的、
+围绕字面量和 cast 的解析代码统统扔掉，
+改成直接调用表达式解析器，
+拿到 AST，
+再从中取出折叠后的字面量值。
 
-## Keep or Discard `parse_literal()`?
+## 保留还是丢掉 `parse_literal()`？
 
-In our current compiler in `decl.c`, we have a function called
-`parse_literal()` which does the manual parsing of strings and integer
-literals. Should we keep it as a function, or just throw it away and
-call `binexpr()` manually elsewhere?
+在当前的 `decl.c` 中，
+我们有一个叫 `parse_literal()`
+的函数，
+负责手工解析字符串和整数字面量。
+那现在该怎么办？
+是保留它，
+还是干脆把它扔掉，
+在别处手工调用 `binexpr()`？
 
-I've decided to keep the function, toss all the existing code and
-change the purpose of this function a little bit. It will now
-also parse any cast which precedes an expression with several literal
-values.
+我最后决定保留这个函数，
+但把原有实现几乎全部清空，
+顺便稍微调整一下它的职责。
+它现在不仅负责解析字面量，
+还负责处理：
+如果一个“由多个字面量构成的表达式”前面
+带了 cast，
+那这个 cast 也一并吃进去。
 
-The function header in `decl.c` is now:
+于是 `decl.c` 里，
+这个函数的声明现在变成了：
 
 ```c
 // Given a type, parse an expression of literals and ensure
@@ -42,9 +59,12 @@ The function header in `decl.c` is now:
 int parse_literal(int type);
 ```
 
-So, it's a drop-in replacement for the old `parse_literal()` except
-that any cast parsing code we had before can be discarded. Let's now
-look at the new code in `parse_literal()`.
+所以从接口上看，
+它依旧是旧版 `parse_literal()`
+的一个可直接替换版本。
+只不过此前我们手工处理 cast 的那部分代码，
+现在都可以丢掉了。
+下面来看新的实现。
 
 ```c
 int parse_literal(int type) {
@@ -54,11 +74,18 @@ int parse_literal(int type) {
   tree= optimise(binexpr(0));
 ```
 
-Ahah. We call `binexpr()` to parse whatever expression is at this point
-in the input file, and then `optimise()` to fold all the literal expressions.
+看到了吧。
+这里我们直接调用 `binexpr()`
+去解析当前输入位置上的整个表达式，
+然后再调用 `optimise()`
+把其中所有字面量表达式折叠掉。
 
-Now, for this to be a tree we can use, the root node should be either
-an A_INTLIT, an A_STRLIT or a A_CAST (if there was a preceding cast).
+接下来，
+如果这棵树能被用来做全局初始化，
+那它的根节点应该只会是：
+`A_INTLIT`、`A_STRLIT`，
+或者 `A_CAST`
+（如果前面带了 cast）。
 
 ```c
   // If there's a cast, get the child and
@@ -69,8 +96,9 @@ an A_INTLIT, an A_STRLIT or a A_CAST (if there was a preceding cast).
   }
 ```
 
-It was a cast, so we get rid of the A_CAST node but keep the type
-that the child was cast to.
+如果根节点是 cast，
+那我们就把 `A_CAST` 这个外壳剥掉，
+但保留它给子节点带来的目标类型。
 
 
 ```c
@@ -79,7 +107,10 @@ that the child was cast to.
     fatal("Cannot initialise globals with a general expression");
 ```
 
-Oops, they gave us something we cannot use, so tell them and stop.
+如果走到这里，
+发现它既不是整数字面量也不是字符串字面量，
+那说明这棵树不能用来初始化全局变量，
+直接报错并终止。
 
 ```c
   // If the type is char * and
@@ -93,15 +124,17 @@ Oops, they gave us something we cannot use, so tell them and stop.
   }
 ```
 
-We need to be able to accept both of these as input:
+我们必须支持下面这两种输入：
 
 ```c
               char *c= "Hello";
               char *c= (char *)0;
 ```
 
-and the two inner IF statements above match the two input lines shown.
-If not a string literal, ...
+所以上面两个内部 `if`
+正好分别对应这两种情况。
+如果不是字符串字面量的话，
+那就继续往下看：
 
 ```c
   // We only get here with an integer literal. The input type
@@ -114,7 +147,8 @@ If not a string literal, ...
 }
 ```
 
-This took me a while to figure out. We have to parse these:
+这一段我想了挺久。
+因为我们必须正确处理下面这些例子：
 
 ```c
   long  x= 3;    // allow this, where 3 is type char
@@ -122,14 +156,20 @@ This took me a while to figure out. We have to parse these:
   char *z= 4000; // prevent this, as z is not integer type
 ```
 
-so the IF statement checks the input type and ensures that it is
-wide enough to accept the integer literal.
+所以上面那个 `if`
+会去检查：
+目标类型是不是整数类型，
+以及它的宽度是否足够容纳当前这个整数字面量。
 
-## The Other Parse Changes in `decl.c`
+## `decl.c` 中其它解析修改
 
-Now that we have a function that can parse a literal expression
-possibly preceded by a cast, we can use it. This is where we toss
-out our old cast parsing code and replace it. The changes are:
+既然现在我们已经有了一个新版本的 `parse_literal()`，
+它既能解析字面量表达式，
+又能顺手处理前置 cast，
+那就该在真正的声明解析代码里用起来了。
+也就是在这里，
+我们把旧版手工 cast 解析代码彻底删掉并替换掉。
+改动如下：
 
 ```c
 // Parse a scalar declaration
@@ -167,24 +207,33 @@ static struct symtable *array_declaration(...) {
 }
 ```
 
-By doing this, we lose about 20 to 30 lines of code to parse any
-possible cast that used to come before the old `parse_literal()`.
-Mind you, we had to add 100 lines of constant folding to get that
-30 line reduction! Luckily, the constant folding is used in general
-expressions as well as here, so it is still a win.
+这样一改，
+我们大概删掉了 20 到 30 行代码，
+这些原本都是为了处理“旧版 `parse_literal()` 前面可能存在的 cast”。
+当然，
+别忘了：
+为了省掉这 30 行，
+我们可是先写了差不多 100 行常量折叠代码！
 
-## One `expr.c` Change
+不过没关系，
+因为常量折叠不仅在这里会被用到，
+它对一般表达式优化也同样有价值，
+所以总体上依然是赚的。
 
-There is one further change to our compiler code to support the
-new `parse_literal()`. In our general function to parse expressions,
-`binexpr()`, we now must inform it that an expression can be ended
-by a '}' token, such as appears here:
+## 对 `expr.c` 的一处修改
+
+为了配合新的 `parse_literal()`，
+编译器里还有一个地方必须改。
+那就是通用表达式解析函数 `binexpr()`，
+它现在必须知道：
+有些表达式会在 `'}'` 处结束，
+比如这里：
 
 ```c
   int fred[]= { 1, 2, 6 };
 ```
 
-The small change to `binexpr()` is:
+所以 `binexpr()` 里的小改动如下：
 
 ```c
     // If we hit a terminating token, return just the left node
@@ -197,12 +246,14 @@ The small change to `binexpr()` is:
     }
 ```
 
-## Code to Test The Changes
+## 用来测试这些改动的代码
 
-Our existing tests will test the situation where there is a single literal
-value to initialise a global variable. This code in `tests/input112.c`
-tests both a literal expression to initialise a scalar variable, and
-a literal expression as the size of an array:
+我们现有的测试，
+已经能覆盖“单个字面量初始化全局变量”的场景。
+而 `tests/input112.c`
+则同时测试了：
+一个用字面量表达式初始化的标量变量，
+以及一个用字面量表达式作为数组大小的声明：
 
 ```c
 #include <stdio.h>
@@ -217,8 +268,9 @@ int main() {
 }
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-In the next part of our compiler writing journey, I will probably feed
-more of the compiler source to itself and see what we still have to
-implement. [Next step](../46_Void_Functions/Readme.md)
+在编译器编写之旅的下一部分中，
+我大概会继续把更多编译器自身源码
+喂给它自己，
+看看还有哪些东西仍然没有实现。 [下一步](../46_Void_Functions/Readme.md)
