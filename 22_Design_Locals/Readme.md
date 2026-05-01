@@ -1,31 +1,40 @@
-# Part 22: Design Ideas for Local Variables and Function Calls
+# 第 22 部分：局部变量与函数调用的设计思路
 
-This is going to be first first part of our compiler writing journey
-where I don't introduce any new code. This time, I need to step
-back from the coder's keyboard and take a big-picture view. This will
-give me a chance to think about how I'm going to implement local variables
-(in one part) and then function arguments & parameters (in the next part).
+这将是我们这趟编译器编写之旅里，
+第一次完全不引入新代码的一部分。
+这一次，
+我需要先从程序员的键盘前退一步，
+站到更高的层面看整体设计。
+这样我就能先想清楚：
+如何在下一部分实现局部变量（local variable），
+以及再下一部分里如何实现函数实参与形参。
 
-Both of these steps are going to involve some significant additions and
-changes to our existing compiler. We also have to deal with new concepts
-like *stack frames* and *register spills*, which so far I've omitted.
+这两个步骤都会对现有编译器带来相当大的新增与改动。
+同时我们还得开始面对一些新概念，
+比如栈帧（stack frame）和寄存器溢出 / 回存（register spill），
+这些东西到目前为止我都还刻意避开了。
 
-Let's start by identifying what new functionality we want to add to the compiler.
+先从“我们到底想给编译器增加哪些功能”说起。
 
-## What Functionality Do We Want
+## 我们想要什么功能
 
-### Local and Global Variable Scopes
+### 局部与全局变量作用域
 
-Right now, all our variables are globally visible to all functions.
-We want to add a
-[local scope](https://en.wikipedia.org/wiki/Scope_(computer_science))
-for variables, so that each function has its own variables that cannot
-be seen by other functions. Moreover, in the case of recursive functions,
-each instance of the same function gets its own local variables.
+目前，
+所有变量对所有函数都是全局可见的。
+我们希望为变量加入
+[局部作用域（local scope）](https://en.wikipedia.org/wiki/Scope_(computer_science))，
+这样每个函数就能拥有自己的一组变量，
+而这些变量不能被其他函数看到。
+更进一步，
+对于递归函数来说，
+同一个函数的每一次调用实例也都应该拥有自己独立的局部变量。
 
-However, I only want to add two scopes: *local* and *global*. C actually creates
-a new scope for every compound statement. In the following example, there
-are three different `a` variables in three different scopes:
+不过，
+我目前只想支持两种作用域：*local* 和 *global*。
+C 实际上会为每一个复合语句（compound statement）创建新的作用域。
+例如下面这段代码里，
+就有三个不同作用域中的 `a`：
 
 ```c
 #include <stdio.h>
@@ -43,35 +52,39 @@ int main()
 }
 ```
 
-I'm not going to support the third, inner, scope. Two will be enough!
+我不打算支持第三层这种“内部嵌套作用域”。
+两层就够了。
 
-### Function Parameters as Local Variables
+### 把函数形参当作局部变量
 
-We also need to support the declaration of zero or more *parameters* to
-a function, and these need to be treated as variables local to the
-instance of that function.
+我们还需要支持函数声明零个或多个形参（parameter），
+并且这些形参必须被当作该函数实例的局部变量来处理。
 
-C functions are "[call by value](https://en.wikipedia.org/wiki/Evaluation_strategy#Call_by_value)":
-the argument values in the caller of a function are copied into the
-function's parameters so that the called function can use and modify them.
+C 函数使用的是
+“[值传递（call by value）](https://en.wikipedia.org/wiki/Evaluation_strategy#Call_by_value)”：
+调用方中的实参值会被复制到函数的形参中，
+这样被调用函数就可以读取并修改这些形参。
 
-### Introducing the Stack
+### 引入栈
 
-To create a local scope for multiple instances of the same function,
-and to provide a place to store the function's parameters, we need a
-*stack*. At this point, if you don't know much about stacks,
-you should do a bit of background reading on them. I'd start with
-this [Wikipedia article on call stacks](https://en.wikipedia.org/wiki/Call_stack).
+为了给同一个函数的多个实例创建独立局部作用域，
+同时也为了给函数形参提供存储位置，
+我们需要一套*栈（stack）*机制。
+如果你现在对栈还不太熟，
+建议先补一点背景知识。
+我会先推荐这篇
+[Wikipedia 关于调用栈的文章](https://en.wikipedia.org/wiki/Call_stack)。
 
-Given that one of the hardware architectures that we support is the
-Intel x86-64 architecture running Linux, we are going to have to implement
-the function call mechanism on this architecture. I found this great
-article by Eli Bendersky on the
-[stack frame layout on x86-64](https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64/).
-This is a document that you will definitely need to read before continuing
-on with this document! As Eli's article is in the public domain, I'm reproducing
-his picture of the stack frame and the parameters in registers below for
-the function
+由于我们支持的硬件架构之一
+是运行在 Linux 上的 Intel x86-64，
+所以函数调用机制必须先能在这套架构上工作。
+我还找到 Eli Bendersky 写的一篇很好的文章：
+[x86-64 上的栈帧布局](https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64/)。
+如果你要继续往下看这份文档，
+这篇文章基本是必读材料。
+Eli 的文章是公有领域的，
+因此我在下面复用了他关于栈帧和寄存器参数的那张图，
+对应的函数是：
 
 ```c
 long myfunc(long a, long b, long c, long d,
@@ -84,85 +97,106 @@ long myfunc(long a, long b, long c, long d,
 
 ![](Figs/x64_frame_nonleaf.png)
 
-Essentially, on the x86-64 architecture, the values of some parameters will be
-passed in registers, and some parameter values will be pushed onto the stack.
-All our local variables will be on the stack but below the stack base pointer.
+本质上说，
+在 x86-64 架构上，
+有些参数值会通过寄存器传递，
+有些参数值则会被压到栈上。
+而我们所有的局部变量都会放在栈上，
+位置位于栈基指针（stack base pointer）之下。
 
-At the same time, we want our compiler to be portable to different architectures.
-So, we will need to support a general function parameter framework for different
-architectures which use the only the stack, only registers or a combination
-of both.
+与此同时，
+我们又希望编译器可以移植到不同架构。
+因此，
+我们需要支持一个足够通用的函数参数处理框架，
+以兼容“只用栈”“只用寄存器”
+以及“两者混合使用”的不同平台。
 
-### Spilling Registers
+### 寄存器回存（Spilling Registers）
 
-Something that I have ignored so far and not implemented yet is 
-[register spilling](https://en.wikipedia.org/wiki/Register_allocation#Spilling).
-We need to spill some or all the registers that we have allocated for
-several reasons:
+还有一件我一直忽略、至今没做的事，
+就是
+[寄存器回存（register spilling）](https://en.wikipedia.org/wiki/Register_allocation#Spilling)。
+我们之所以需要把部分或全部已分配寄存器的内容回存到栈上，
+原因有几个：
 
- + We have run out of registers to allocate as there is only a fixed
-   number of registers. We can spill a register onto the stack so
-   that it is free to allocate.
- + We need to spill all our allocated register, and all registers with
-   parameters, onto the stack before a function call. This frees them up
-   so they can be used by the called function.
+ + 可分配寄存器数量是固定的，
+   当我们用完它们时，
+   就必须把某个寄存器的值暂时回存到栈上，
+   以腾出这个寄存器继续分配。
+ + 在函数调用前，
+   我们需要把当前已分配的寄存器，
+   以及那些装有参数的寄存器，
+   全部回存到栈上。
+   这样它们才能被被调用函数拿去使用。
 
-On a function call return, we will need to unspill the registers to
-get the values that we need back. Similarly, if we've spilled a register
-to make it free, then we need to unspill its old value and reallocate
-it when it becomes free again.
+函数调用返回后，
+我们还需要把这些寄存器“恢复”（unspill）回来，
+以取回原先需要的值。
+同样，
+如果是因为临时腾位置而回存了某个寄存器，
+那等它再次可用时，
+我们还得把旧值恢复并重新分配回去。
 
-### Static Variables
+### 静态变量
 
-While not on the list of things to implement immediately, at some point
-I'll need to allocate
-[static variables](https://en.wikipedia.org/wiki/Static_variable).
-There will be some naming issues here for local static variables, but I'll
-try to keep this in the back of my mind as I implement all of the immediate
-ideas.
+虽然它不在我眼下立刻要实现的清单里，
+但在某个阶段我肯定还得支持
+[静态变量（static variable）](https://en.wikipedia.org/wiki/Static_variable)。
+局部静态变量在命名上会带来一些问题，
+不过在实现这些近期目标时，
+我会尽量把这件事放在脑子里一并考虑。
 
-### Initialising Variables
+### 变量初始化
 
-We should allow variables to be initialised when they are declared.
-For global variables, we can definitely initialise them to a constant
-value, e.g. `int x= 7;` but not to an expression as we don't have a
-[function context](https://en.wikipedia.org/wiki/Scope_(computer_science)#Function_scope)
-to run the initialisation code in.
+我们应该允许变量在声明时就进行初始化。
+对于全局变量，
+我们当然可以把它初始化为常量值，
+例如 `int x= 7;`；
+但不能初始化成一个表达式，
+因为我们并没有
+[函数作用域（function scope）](https://en.wikipedia.org/wiki/Scope_(computer_science)#Function_scope)
+来运行这段初始化代码。
 
-However, we should be able to do
-local variable initialisation, e.g. `int a= 2, b= a+5;` as we can
-insert the initialisation code for the variable at
-the start of the function code.
+不过，
+局部变量初始化应该是可行的，
+例如 `int a= 2, b= a+5;`，
+因为我们可以把变量的初始化代码插到函数代码开头。
 
-## Ideas and Implementation
+## 设计想法与实现方向
 
-OK, so these are the ideas and issues that are bubbling around in my
-designer's mind at this time. Here's how I think I'm going to implement
-some of them.
+好，
+上面这些就是此刻在我设计脑海里翻滚的想法与问题。
+接下来讲讲我打算怎样去实现其中一些部分。
 
-### Local Symbols
+### 局部符号
 
-Let's start with the differentiation between local and global variables.
-The globals have to be visible to all functions, but the locals are only
-visible to one function.
+先从“局部变量”和“全局变量”的区分开始。
+全局变量必须对所有函数可见，
+而局部变量只对某一个函数可见。
 
-SubC uses the one symbol table to store information about both local and
-global variables. The global variables are allocated at one end and the
-local variables are stored at the other. There is code to ensure there is
-no collision between the two ends in the middle. I like this idea, as we then
-have a single set of unique symbol slot numbers for every symbol, regardless
-of its scope.
+SubC 使用同一张符号表同时存储局部变量和全局变量的信息。
+全局变量从一端开始分配，
+局部变量从另一端开始分配，
+并通过代码保证两头不会在中间撞上。
+我很喜欢这个思路，
+因为这样一来，
+不管符号属于什么作用域，
+我们都能为它分配唯一的一套符号槽位编号。
 
-In terms of prioritising local symbols over global symbols, we can
-search the local end of the symbol table first and, if we don't find a
-symbol, we can then search through the global end. And, once we finish parsing
-a function, we can simply wipe the local end of the symbol table.
+至于“局部符号优先于全局符号”的查找规则，
+我们只需要先在符号表的局部一端搜索；
+如果没找到，
+再去全局一端搜索即可。
+而当我们解析完一个函数之后，
+只需要把符号表的局部一端整体清空即可。
 
-### Storage Classes
+### 存储类别
 
-C has the concept of
-[storage classes](https://en.wikipedia.org/wiki/C_syntax#Storage_class_specifiers), and we'll have to implement at least some of these classes.
-SubC implements several of the storage classes:
+C 语言里有
+[存储类别（storage class）](https://en.wikipedia.org/wiki/C_syntax#Storage_class_specifiers)
+这个概念，
+而我们至少得实现其中一部分。
+SubC 为符号表中的每个符号实现了多个存储类别：
 
 ```c
 /* storage classes */
@@ -178,51 +212,66 @@ enum {
 };
 ```
 
-for each symbol in the symbol table. I think I can modify and use this. But
-I'll probably support fewer storage class types.
+我觉得这套东西我可以稍作修改后拿来用，
+不过我大概率只会支持其中更少的一部分。
 
-### Function Prototypes
+### 函数原型
 
-Every function has a *prototype*: the number and type of each parameter
-that it has. We need these to ensure the arguments to a function call matches
-the types and number of function parameters.
+每个函数都有一个*原型（prototype）*：
+也就是它拥有多少个参数，
+以及每个参数各自是什么类型。
+我们需要这些信息，
+来确保函数调用时提供的实参数量与类型
+能够匹配函数形参。
 
-Somewhere I will need to record the parameter list and types for each
-function. We can also support the declaration of a function's prototype
-before the actual declaration of the function itself.
+因此，
+我们必须在某个地方记录每个函数的参数列表和参数类型。
+同时我们也可以支持：
+在函数真正定义之前，
+先声明它的原型。
 
-Now, where are we going to store this? I could create a separate data
-structure for function prototypes. I don't want to support two-dimensional
-arrays in our language, but we will need a list of primitive types for
-each function.
+那这些信息应该存在哪里？
+我当然可以单独创建一个新的数据结构来保存函数原型。
+我们的语言并不打算支持二维数组，
+但我们确实需要为每个函数保存一串基本类型列表。
 
-So, my idea is this. We already have S_FUNCTION as the type for our
-existing symbol table elements. We can have a "number of parameters" field
-in each symbol table entry to store the number of parameters that the function has.
-We can then immediately follow this symbol with the symbol table entries
-for each function parameter.
+所以我的想法是这样的。
+我们已经用 `S_FUNCTION` 表示符号表项里的函数类型。
+那么可以再给每个符号表项加一个“参数个数”字段，
+专门记录该函数有多少个参数。
+随后，
+就把该函数每一个参数对应的符号表项
+紧跟在这个函数符号表项后面。
 
-When we are parsing the function's parameter list, we can add the parameters
-in the global symbol section to record the function's prototype. At the same time,
-we can also add the parameters as entries in the local symbol section, as they
-will be used as local variables by the function itself.
+当我们解析函数参数列表时，
+可以把这些参数同时加入“全局符号区”，
+用来记录函数原型；
+与此同时，
+也把这些参数作为“局部符号”加入局部符号区，
+因为函数自身会把它们当作局部变量来使用。
 
-When we need to determine if the list of arguments to a function call
-matches the function's prototype, we can find the function's global
-symbol table entry and then compare the following entries in the symbol
-table to the argument list.
+之后当我们需要判断一个函数调用的实参列表
+是否与函数原型匹配时，
+只要找到该函数在全局符号表里的表项，
+再把后面紧跟着的若干个符号表项
+与实参列表逐个比较即可。
 
-Finally, when doing a search for a global symbol, we can easily skip past
-the parameter entries for a function by loading the function's "number of parameters"
-field and skip this many symbol table entries.
+最后，
+在查找全局符号时，
+我们还可以很容易地“跳过”函数参数表项：
+只要读出该函数的“参数个数”字段，
+然后向后跳过这么多个符号表槽位即可。
 
-### Keeping Parameters in Registers: Not Possible
+### 让参数一直待在寄存器里：做不到
 
-I'm actually writing this section after trying to implement the above, so I've come
-back to revisit the design a bit. I thought that we would be able to keep the
-parameters passed as registers in their registers: this would make access to them
-faster and keep the stack frame smaller. But this isn't always possible for this
-reason. Consider this code:
+这一小节其实是我在尝试实现上述方案之后，
+又回过头来重新调整设计时补写的。
+我原本以为，
+那些通过寄存器传递进来的参数可以一直留在寄存器里：
+这样访问它们会更快，
+同时栈帧也会更小。
+但这并不总是可行。
+例如下面这段代码：
 
 ```c
 void myfunction(int a) {        // a is a parameter in a register
@@ -233,37 +282,47 @@ void myfunction(int a) {        // a is a parameter in a register
 }
 ```
 
-If the `a` parameter is in a register, we won't be able to get its address
-with the `&` operator. Therefore, we'll have to copy it into memory somewhere.
-And, given that parameters are variables local to the function, we will need to
-copy it to the stack.
+如果参数 `a` 只存在于寄存器中，
+那我们就无法通过 `&` 运算符取得它的地址。
+因此，
+我们最终还是得把它拷贝到某个真实内存位置里。
+而既然参数本质上是函数的局部变量，
+那这个位置自然就应该是在栈上。
 
-For a while I had ideas of walking the AST looking for which parameters in the
-tree needed to have real addresses, but then I remembered that I'm following the
-KISS principle: keep it simple, stupid! So I will copy all parameters out of
-registers and onto the stack.
+我曾经一度想过，
+能不能遍历 AST，
+只找出那些“确实需要真实地址”的参数，
+只把它们落到栈上。
+但后来我想起自己一直遵循的是 KISS 原则：
+keep it simple, stupid!
+所以最后我决定：
+把所有参数都统一从寄存器复制到栈上。
 
-### Location of Local Variables
+### 局部变量的位置
 
-How are we going to determine where a parameter or local variable is on the stack,
-once they have been copied or placed there? To do this, I will add a `posn` field into
-each local symbol table entry. This will indicate the offset of the variable below
-the frame base pointer.
+一旦参数和局部变量都被复制或放到了栈上，
+我们该如何判断它们具体位于栈中的什么位置？
+为了解决这个问题，
+我会给每一个局部符号表项新增一个 `posn` 字段。
+它用来表示该变量相对于栈帧基指针（frame base pointer）向下的偏移量。
 
-Looking at the
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html),
-the function declaration list (i.e. the list of function parameters)
-comes before the declaration list for the local variables, and this
-comes before the statement list.
+回头看
+[C 的 BNF 语法](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)，
+函数声明列表
+（也就是函数形参列表）
+出现在局部变量声明列表之前，
+而局部变量声明列表又出现在语句列表之前。
 
-This means that, as we parse the parameters and then the local variables, we can
-determine at what position they will be on the stack before we get to parse
-the statement list.
+这意味着：
+在我们解析形参、再解析局部变量的过程中，
+其实就已经能提前算出它们未来在栈上的位置了；
+不用等到后面再去解析语句列表时才决定。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I think that's about all I want to do in terms of design before I start on
-the next parts of our compiler writing journey. I'll tackle local variables
-by themselves in the next part, and try to add in function calls and
-parameters in the following part. But it might take three or more steps
-to get all of the new proposed features implemented. We'll see. [Next step](../23_Local_Variables/Readme.md)
+在真正进入后续实现之前，
+我觉得设计层面我先考虑到这里就差不多了。
+下一部分我会先单独处理局部变量，
+然后再试着在后一部分里把函数调用与参数支持补上。
+不过要把上面这些设想中的功能全部做完，
+也许最终得拆成三步甚至更多步。走着看吧。 [下一步](../23_Local_Variables/Readme.md)

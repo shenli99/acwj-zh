@@ -1,15 +1,15 @@
-# Part 23: Local Variables
+# 第 23 部分：局部变量
 
-I've just implemented local variables on the stack following
-the design ideas I described in the previous part of our
-compiler writing journey, and it all went fine. Below, I
-will outline the actual code changes.
+我刚刚已经按照上一部分里描述的设计思路，
+把基于栈的局部变量实现出来了，
+而且整体进展相当顺利。
+下面我会概述实际做过的代码改动。
 
-## Symbol Table Changes
+## 符号表的变更
 
-We start with the changes to the symbol table as these
-are central to having two variable scopes: global and local.
-The structure of the symbol table entries is now (in `defs.h`):
+先从符号表说起，
+因为它正是“同时支持全局和局部两种变量作用域”的核心。
+现在符号表项的结构如下（位于 `defs.h`）：
 
 ```c
 // Storage classes
@@ -31,14 +31,18 @@ struct symtable {
 };
 ```
 
-with the `class` and `posn` fields added. As described in the last part,
-the `posn` is negative and holds an offset from the stack base pointer,
-i.e. the local variable is stored on the stack.
-In this part, I've only implemented local variables, not parameters. Also
-note that we now have symbols marked C_GLOBAL or C_LOCAL.
+这里新增了 `class` 和 `posn` 两个字段。
+正如上一部分所说，
+`posn` 为负值，
+保存的是相对于栈基指针的偏移量，
+也就是局部变量在栈上的存储位置。
+这一部分里我只实现了局部变量，
+还没有实现参数。
+另外也请注意：
+现在符号会被标记成 `C_GLOBAL` 或 `C_LOCAL`。
 
-The symbol table's name has also changed, along with the indexed into it
-(in `data.h`):
+符号表本身的名字也改了，
+连同用于索引它的变量一起改到了下面这样（位于 `data.h`）：
 
 ```c
 extern_ struct symtable Symtable[NSYMBOLS];     // Global symbol table
@@ -46,9 +50,10 @@ extern_ int Globs;                              // Position of next free global 
 extern_ int Locls;                              // Position of next free local symbol slot
 ```
 
-Visually, the global symbols are stored in the left-hand side of the symbol table
-with `Globs` pointing at the next free global symbol slot and `Locls`
-pointing at the next free local symbol slot.
+从视觉上看，
+全局符号存放在符号表左侧，
+`Globs` 指向下一个空闲的全局符号槽位；
+而 `Locls` 指向下一个空闲的局部符号槽位。
 
 ```
 0xxxx......................................xxxxxxxxxxxxNSYMBOLS-1
@@ -57,9 +62,11 @@ pointing at the next free local symbol slot.
    Globs                                Locls
 ```
 
-In `sym.c` as well as the existing `findglob()` and `newglob()` functions
-to find or allocate a global symbol, we now have `findlocl()` and `newlocl()`.
-They have code to detect a collision between `Globs` and `Locls`:
+在 `sym.c` 里，
+除了原本已经有的 `findglob()` 和 `newglob()`
+用于查找 / 分配全局符号之外，
+现在还新增了 `findlocl()` 和 `newlocl()`。
+它们会检测 `Globs` 与 `Locls` 是否发生碰撞：
 
 ```c
 // Get the position of a new global symbol slot, or die
@@ -83,15 +90,18 @@ static int newlocl(void) {
 }
 ```
 
-There is now a generic function `updatesym()` to set all the fields in
-a symbol table entry. I won't give the code because it simply sets
-each field one at a time.
+现在还有了一个通用函数 `updatesym()`，
+专门负责设置某个符号表项的所有字段。
+我就不把代码展开了，
+因为它本质上只是逐个字段赋值。
 
-The `updatesym()` function is called by `addglobl()` and `addlocl()`.
-These first try to find an existing symbol, allocate a new one if not found,
-and call `updatesym()` to set the values for this symbol. Finally, there is
-a new function, `findsymbol()`, that searches for a symbol in both local
-and global sections of the symbol table:
+`updatesym()` 会被 `addglobl()` 和 `addlocl()` 调用。
+这两个函数会先尝试查找已有符号；
+如果找不到，
+就分配一个新的；
+然后再调用 `updatesym()` 填好字段。
+最后还有一个新函数 `findsymbol()`，
+会同时在符号表的局部区和全局区搜索一个符号：
 
 ```c
 // Determine if the symbol s is in the symbol table.
@@ -106,14 +116,16 @@ int findsymbol(char *s) {
 }
 ```
 
-Throughout the rest of the code, the old calls to `findglob()` have been
-replaced with calls the `findsymbol()`.
+在编译器剩余代码里，
+原本对 `findglob()` 的调用，
+现在基本都替换成了 `findsymbol()`。
 
-## Changes to Declaration Parsing
+## 声明解析的变更
 
-We need to be able to parse both global and local variable declarations.
-The code to parse them is (for now) the same, so I added a flag to the
-function:
+现在我们必须同时支持解析“全局变量声明”和“局部变量声明”。
+目前来看，
+它们的解析逻辑是一样的，
+所以我给函数加了一个标志位来区分：
 
 ```c
 void var_declaration(int type, int islocal) {
@@ -135,9 +147,9 @@ void var_declaration(int type, int islocal) {
 }
 ```
 
-There are two calls to `var_declaration()` in our compiler at present.
-This one in `global_declarations()` in `decl.c` parses global variable
-declarations:
+目前编译器里有两处会调用 `var_declaration()`。
+第一处在 `decl.c` 的 `global_declarations()` 里，
+用于解析全局变量声明：
 
 ```c
 void global_declarations(void) {
@@ -148,8 +160,8 @@ void global_declarations(void) {
 }
 ```
 
-This one in `single_statement()` in `stmt.c` parses local variable
-declarations:
+另一处在 `stmt.c` 的 `single_statement()` 里，
+用于解析局部变量声明：
 
 ```c
 static struct ASTnode *single_statement(void) {
@@ -172,17 +184,21 @@ static struct ASTnode *single_statement(void) {
 }
 ```
 
-## Changes to the x86-64 Code Generator
+## x86-64 代码生成器的变更
 
-As always, many of the `cgXX()` functions in the platform-specific code
-in `cg.c` are exposed to the rest of the compiler as `genXX()` functions
-in `gen.c`. That's going to be the case here. So while I only mention the
-`cgXX()` functions, don't forget that there are often matching `genXX()`
-functions.
+和往常一样，
+`cg.c` 里那些平台相关的 `cgXX()` 函数，
+通常都会通过 `gen.c` 中对应的 `genXX()` 函数暴露给编译器其他部分使用。
+这里也不例外。
+所以虽然我下面主要会提到 `cgXX()`，
+但别忘了很多地方其实还有配套的 `genXX()` 包装层。
 
-For each local variable, we need to allocate a position for it and
-record this in the symbol table's `posn` field. Here is how we do it.
-In `cg.c` we have a new static variable and two functions to manipulate it:
+对于每个局部变量，
+我们都需要给它分配一个位置，
+并把这个位置记录到符号表的 `posn` 字段中。
+做法如下。
+在 `cg.c` 中，
+我新增了一个静态变量和两个辅助函数：
 
 ```c
 // Position of next local variable relative to stack base pointer.
@@ -205,48 +221,65 @@ int cggetlocaloffset(int type, int isparam) {
 }
 ```
 
-For now, we allocate all local variables on the stack. They are aligned
-with a minimum of 4 bytes between each one. For 64-bit integers and pointers,
-that's 8-bytes for each variable, though.
+目前，
+我们把所有局部变量都分配在栈上。
+它们之间的对齐最少按 4 字节处理。
+对于 64 位整数和指针，
+那自然就会是每个变量 8 字节。
 
-> I know, in the past, that multi-byte data items had to be properly aligned
-  in memory or the CPU would fault. It seems that, at least for x86-64,
-  there is [no need to align data items](https://lemire.me/blog/2012/05/31/data-alignment-for-speed-myth-or-reality/).
+> 我过去一直以为，多字节数据项必须严格按边界对齐，
+  否则 CPU 会直接异常。
+  但至少在 x86-64 上，
+  [数据项未必一定要对齐](https://lemire.me/blog/2012/05/31/data-alignment-for-speed-myth-or-reality/)。
 
-> However, the stack pointer on the x86-64 *does* have to be properly aligned before
-  a function call. In "[Optimizing Subroutines in Assembly Language](https://www.agner.org/optimize/optimizing_assembly.pdf)" by Agner Fog, page 30, he
-  notes that "The stack pointer must be aligned by 16 before any CALL instruction,
-  so that the value of RSP is 8 modulo 16 at the entry of a function."
+> 不过，
+  x86-64 上的栈指针在函数调用前*确实*必须按要求对齐。
+  在 Agner Fog 的
+  [Optimizing Subroutines in Assembly Language](https://www.agner.org/optimize/optimizing_assembly.pdf)
+  第 30 页中，
+  他提到：
+  “The stack pointer must be aligned by 16 before any CALL instruction,
+  so that the value of RSP is 8 modulo 16 at the entry of a function.”
 
-> This means that, as part of the function preamble, we need to set `%rsp` to a
-  correctly aligned value.
+> 这意味着，
+  作为函数前导（function preamble）的一部分，
+  我们必须把 `%rsp` 调整到正确对齐的位置。
 
-`cgresetlocals()` is called in `function_declaration()` once we have added
-the function's name to the symbol table but before we start parsing the
-local variable declarations. This sets `localOffset` back to zero.
+`cgresetlocals()` 会在 `function_declaration()` 里被调用，
+时机是在函数名已经加入符号表之后、
+但还没开始解析局部变量声明之前。
+它会把 `localOffset` 重置为 0。
 
-We saw that `addlocl()` is called with a new local scalar or local array
-is parsed. `addlocl()` calls `cggetlocaloffset()` with the type of the new
-variable. This decrements the offset from the stack base pointer by an
-approriate amount, and this offset is stored in the `posn` field for the
-symbol.
+前面说过，
+当解析到新的局部标量或局部数组时，
+会调用 `addlocl()`。
+而 `addlocl()` 会把新变量的类型传给 `cggetlocaloffset()`。
+后者会按合适的字节数减少“相对栈基指针的偏移”，
+并把这个偏移存进该符号的 `posn` 字段。
 
-Now that we have the symbol's offset from the stack base pointer, we
-now need to modify the code generator so that, when we are accessing a
-local variable instead of a global variable, we output an offset to `%rbp`
-instead of naming a global location.
+既然现在我们已经知道某个符号相对栈基指针的偏移，
+那代码生成器也必须跟着改：
+当访问的是局部变量而不是全局变量时，
+输出的不再是一个全局标签名，
+而应该是相对于 `%rbp` 的偏移地址。
 
-Thus, we now have a `cgloadlocal()` function which is nearly identical to
-`cgloadglob()` except that all `%s(%%rip)` format strings to print
-`Symtable[id].name` are replaced with `%d(%%rbp)` format strings to print
-`Symtable[id].posn`. In fact, if you search for `Symtable[id].posn` in `cg.c`,
-you will spot all of these new local variable references.
+因此，
+我们现在有了一个 `cgloadlocal()`，
+它和 `cgloadglob()` 几乎完全相同，
+只不过原先那些通过 `%s(%%rip)` 输出
+`Symtable[id].name` 的格式字符串，
+都改成了输出 `%d(%%rbp)`，
+即 `Symtable[id].posn`。
+实际上，
+如果你在 `cg.c` 里搜一下 `Symtable[id].posn`，
+就能把所有新增的局部变量访问逻辑都看出来。
 
-### Updating the Stack Pointer
+### 更新栈指针
 
-Now that we are using locations on the stack, we had better move the stack
-pointer down below the area which holds our local variables. Thus, we need
-to modify the stack pointer in our function preamble and postamble:
+既然现在我们已经开始使用栈上的位置了，
+那当然也得把栈指针往下挪，
+挪到局部变量区域的下方。
+因此我们必须修改函数前导和函数收尾（postamble）中的栈指针处理：
 
 ```c
 // Print out a function preamble
@@ -274,15 +307,17 @@ void cgfuncpostamble(int id) {
 }
 ```
 
-Remember that `localOffset` is negative. So we add a negative
-value in the function preamble, and add a negative negative value in the
-function postamble.
+别忘了 `localOffset` 是负值。
+所以在函数前导里，
+我们加的是一个负值；
+而在函数收尾里，
+我们加回去的则是“负负得正”的值。
 
-## Testing the Changes
+## 测试这些改动
 
-I think that is the bulk of the changes to add local variables to our
-compiler. The test program `tests/input25.c` demonstrates the storage of
-local variables on the stack:
+我觉得这基本就是把局部变量加入编译器所需的大部分改动了。
+测试程序 `tests/input25.c` 展示了
+局部变量如何被存放到栈上：
 
 ```c
 int a; int b; int c;
@@ -295,7 +330,7 @@ int main()
 }
 ```
 
-Here is the annotated assembly output:
+下面是加了注释的汇编输出：
 
 ```
         .data
@@ -332,14 +367,17 @@ L1:
         ret
 ```
 
-Finally, a `$ make test` demonstrates that the compiler passes all
-previous tests.
+最后，
+执行一次 `$ make test` 可以看到编译器仍然通过了之前所有测试。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I thought implementing local variables was going to be tricky, but after
-doing some thinking about the design of a solution, it turned out to be
-easier than I expected. Somehow I suspect the next step will be the tricky one.
+我本来以为实现局部变量会很棘手，
+但在提前把设计想清楚之后，
+它比我预期中要顺利不少。
+不知为何，
+我总觉得真正难的部分会是在下一步。
 
-In the next part of our compiler writing journey, I will attempt to
-add function arguments and parameters to our compiler. Wish me luck! [Next step](../24_Function_Params/Readme.md)
+在编译器编写之旅的下一部分中，
+我会尝试把函数实参与形参也加进编译器里。
+祝我好运吧。 [下一步](../24_Function_Params/Readme.md)
