@@ -1,72 +1,65 @@
-# Part 0: Introduction
+# 第 0 部分：介绍
 
-I've decided to go on a compiler writing journey. In the past I've written some
-[assemblers](https://github.com/DoctorWkt/pdp7-unix/blob/master/tools/as7), and
-I've written a [simple compiler](https://github.com/DoctorWkt/h-compiler)
-for a typeless language. But I've never written a compiler that can compile
-itself. So that's where I'm headed on this journey.
+我决定踏上一段编译器编写之旅。过去我写过一些
+[汇编器（assembler）](https://github.com/DoctorWkt/pdp7-unix/blob/master/tools/as7)，
+也写过一个面向无类型语言的
+[简单编译器](https://github.com/DoctorWkt/h-compiler)，
+但我从来没有写过一个能够编译自身的编译器。
+所以，这就是这段旅程的目标。
 
-As part of the process, I'm going to write up my work so that others can
-follow along. This will also help me to clarify my thoughts and ideas.
-Hopefully you, and I, will find this useful!
+作为整个过程的一部分，我会把自己的工作记录下来，这样其他人也能一路跟着做。
+这也能帮助我梳理自己的想法和设计思路。
+希望你我都会觉得它有帮助。
 
-## Goals of the Journey
+## 这段旅程的目标
 
-Here are my goals, and non-goals, for the journey:
+下面是这段旅程的目标，以及一些明确不打算做的事：
 
- + To write a self-compiling compiler. I think that if the compiler can
-   compile itself, it gets to call itself a *real* compiler.
- + To target at least one real hardware platform. I've seen a few compilers
-   that generate code for hypothetical machines. I want my compiler to
-   work on real hardware. Also, if possible, I want to write the compiler
-   so that it can support multiple backends for different hardware platforms.
- + Practical before research. There's a whole lot of research in the area of
-   compilers. I want to start from absolute zero on this journey, so I'll
-   tend to go for a practical approach and not a theory-heavy approach. That
-   said, there will be times when I'll need to introduce (and implement) some
-   theory-based stuff.
- + Follow the KISS principle: keep it simple, stupid! I'm definitely going to
-   be using Ken Thompson's principle here: "When in doubt, use brute force."
- + Take a lot of small steps to reach the final goal. I'll break the journey
-   up into a lot of simple steps instead of taking large leaps. This will
-   make each new addition to the compiler a bite-sized and easily digestible
-   thing.
+ + 写出一个可自举的编译器。我认为，如果一个编译器能够编译自己，
+   那它才配得上“真正的编译器”这个称呼。
+ + 至少支持一个真实硬件平台。我见过一些编译器只给假想机器生成代码。
+   我希望自己的编译器能运行在真正的硬件上。并且如果可能的话，
+   我也希望它的设计能够支持多个不同硬件平台的后端。
+ + 实践优先于研究。编译器领域有大量研究成果，但我想从零开始，
+   所以会优先采用实践导向的方法，而不是理论过重的方法。
+   当然，过程中有些地方仍然需要引入并实现一些理论性的内容。
+ + 遵循 KISS 原则：保持简单，别自作聪明。我肯定会采用 Ken Thompson 的原则：
+   “如果拿不准，就用蛮力。”
+ + 用很多小步骤抵达最终目标。我会把整段旅程拆成很多简单步骤，
+   而不是一次跨很大的步子。这样每次给编译器增加的新能力都会变得小巧、
+   容易理解和消化。
 
-## Target Language
+## 目标语言
 
-The choice of a target language is difficult. If I choose a high-level
-language like Python, Go etc., then I'll have to implement a whole pile
-of libraries and classes as they are built-in to the language.
+选择目标语言并不容易。如果我选择 Python、Go 这类高级语言，
+那就必须先实现一大堆语言内建的库和类。
 
-I could write a compiler for a language like Lisp, but these can be
-[done easily](ftp://publications.ai.mit.edu/ai-publications/pdf/AIM-039.pdf).
+我也可以为 Lisp 这样的语言写编译器，但这类工作
+[已经可以很轻松地完成](ftp://publications.ai.mit.edu/ai-publications/pdf/AIM-039.pdf)。
 
-Instead, I've fallen back on the old standby and I'm going to write a
-compiler for a subset of C, enough to allow the compiler to compile
-itself.
+所以，我最终还是选择了经典路线：为 C 语言的一个子集编写编译器，
+功能只要足以让编译器编译自己就够了。
 
-C is just a step up from assembly language (for some subset of C, not
-[C18](https://en.wikipedia.org/wiki/C18_(C_standard_revision))), and this
-will help make the task of compiling the C code down to assembly somewhat
-easier. Oh, and I also like C.
+C 基本上只比汇编语言高一层
+（至少这里指的是某个 C 子集，而不是
+[C18](https://en.wikipedia.org/wiki/C18_(C_standard_revision))），
+这能让我们把 C 代码编译成汇编的任务简单一些。
+当然，我本来也喜欢 C。
 
-## The Basics of a Compiler's Job
+## 编译器工作的基本内容
 
-The job of a compiler is to translate input in one language (usually
-a high-level language) into a different output language (usually a
-lower-level language than the input). The main steps are:
+编译器的工作，是把一种语言中的输入
+（通常是高级语言）翻译成另一种输出语言
+（通常比输入语言更底层）。主要步骤如下：
 
 ![](Figs/parsing_steps.png)
 
- + Do [lexical analysis](https://en.wikipedia.org/wiki/Lexical_analysis)
-to recognise the lexical elements. In several languages, `=` is different
-to `==`, so you can't just read a single `=`. We call these lexical
-elements *tokens*.
- + [Parse](https://en.wikipedia.org/wiki/Parsing) the input, i.e. recognise
-the syntax and structural elements of the input and ensure that they
-conform to the *grammar* of the language. For example, your language
-might have this decision-making
-structure:
+ + 做[词法分析（lexical analysis）](https://en.wikipedia.org/wiki/Lexical_analysis)，
+   识别词法元素。在很多语言里，`=` 和 `==` 的含义不同，
+   所以你不能只读一个 `=` 就完事。我们把这些词法元素称为 *token*。
+ + 对输入进行[语法解析（parse）](https://en.wikipedia.org/wiki/Parsing)，
+   也就是识别输入中的语法与结构元素，并确保它们符合该语言的 *grammar*（语法）。
+   例如，你的语言里可能会有这样的条件结构：
 
 ```
       if (x < 23) {
@@ -74,86 +67,75 @@ structure:
       }
 ```
 
-> but in another language you might write:
+> 但在另一种语言中，你也许会写成：
 
 ```
       if (x < 23):
         print("x is smaller than 23\n")
 ```
 
-> This is also the place where the compiler can detect syntax errors, like if
-the semicolon was missing on the end of the first *print* statement.
+> 这一步也是编译器发现语法错误的地方，例如第一条 *print* 语句结尾忘了加分号。
 
- + Do [semantic analysis](https://en.wikipedia.org/wiki/Semantic_analysis_(compilers))
-   of the input, i.e. understand the meaning of the input. This is actually different
-   from recognising the syntax and structure. For example, in English, a
-   sentence might have the form `<subject> <verb> <adjective> <object>`.
-   The following two sentences have the same structure, but completely
-   different meaning:
+ + 做[语义分析（semantic analysis）](https://en.wikipedia.org/wiki/Semantic_analysis_(compilers))，
+   也就是理解输入的含义。它和“识别语法结构”并不是一回事。
+   例如在英语中，一个句子可能具有 `<subject> <verb> <adjective> <object>` 这样的结构。
+   下面这两个句子结构相同，但含义完全不同：
 
 ```
           David ate lovely bananas.
           Jennifer hates green tomatoes.
 ```
 
- + [Translate](https://en.wikipedia.org/wiki/Code_generation_(compiler))
-   the meaning of the input into a different language. Here we
-   convert the input, parts at a time, into a lower-level language.
+ + 将输入的含义[翻译（translate）](https://en.wikipedia.org/wiki/Code_generation_(compiler))
+   成另一种语言。这里我们会把输入分块转换成更底层的语言。
   
-## Resources
+## 参考资料
 
-There's a lot of compiler resources out on the Internet. Here are the ones
-I'll be looking at.
+互联网上有很多关于编译器的资料。下面是我会重点参考的一些内容。
 
-### Learning Resources
+### 学习资料
 
-If you want to start with some books, papers and tools on compilers,
-I'd highly recommend this list:
+如果你想先看一些关于编译器的书、论文和工具，我非常推荐下面这份清单：
 
-  + [Curated list of awesome resources on Compilers, Interpreters and Runtimes](https://github.com/aalhour/awesome-compilers) by Ahmad Alhour
+  + [Curated list of awesome resources on Compilers, Interpreters and Runtimes](https://github.com/aalhour/awesome-compilers)，作者 Ahmad Alhour
 
-### Existing Compilers
+### 现有编译器
 
-While I'm going to build my own compiler, I plan on looking at other compilers
-for ideas and probably also borrow some of their code. Here are the ones
-I'm looking at:
+虽然我要自己构建一个编译器，但我计划参考其他编译器的思路，
+并且很可能借用其中一些代码。下面是我正在参考的项目：
 
-  + [SubC](http://www.t3x.org/subc/) by Nils M Holm
-  + [Swieros C Compiler](https://github.com/rswier/swieros/blob/master/root/bin/c.c) by Robert Swierczek
-  + [fbcc](https://github.com/DoctorWkt/fbcc) by Fabrice Bellard
-  + [tcc](https://bellard.org/tcc/), also by Fabrice Bellard and others
-  + [catc](https://github.com/yui0/catc) by Yuichiro Nakada
-  + [amacc](https://github.com/jserv/amacc) by Jim Huang
-  + [Small C](https://en.wikipedia.org/wiki/Small-C) by Ron Cain,
-    James E. Hendrix, derivatives by others
+  + [SubC](http://www.t3x.org/subc/)，作者 Nils M Holm
+  + [Swieros C Compiler](https://github.com/rswier/swieros/blob/master/root/bin/c.c)，作者 Robert Swierczek
+  + [fbcc](https://github.com/DoctorWkt/fbcc)，作者 Fabrice Bellard
+  + [tcc](https://bellard.org/tcc/)，同样来自 Fabrice Bellard 及其他贡献者
+  + [catc](https://github.com/yui0/catc)，作者 Yuichiro Nakada
+  + [amacc](https://github.com/jserv/amacc)，作者 Jim Huang
+  + [Small C](https://en.wikipedia.org/wiki/Small-C)，作者 Ron Cain、James E. Hendrix，以及其他人的衍生版本
 
-In particular, I'll be using a lot of the ideas, and some of the code,
-from the SubC compiler.
+尤其是，我会大量借鉴 SubC 编译器中的思路，甚至复用其中一部分代码。
 
-## Setting Up the Development Environment
+## 搭建开发环境
 
-Assuming that you want to come along on this journey, here's what you'll
-need. I'm going to use a Linux development environment, so download and
-set up your favourite Linux system: I'm using Lubuntu 18.04.
+假设你想跟着一起走完这段旅程，那么你需要准备下面这些环境。
+我会使用 Linux 作为开发环境，所以请下载并配置你喜欢的 Linux 系统：
+我自己用的是 Lubuntu 18.04。
 
-I'm going to target two hardware platforms: Intel x86-64 and 32-bit ARM.
-I'll use a PC running Lubuntu 18.04 as the Intel target, and a Raspberry
-Pi running Raspbian as the ARM target.
+我计划面向两个硬件平台：Intel x86-64 和 32 位 ARM。
+Intel 目标平台是一台运行 Lubuntu 18.04 的 PC，
+ARM 目标平台是一台运行 Raspbian 的 Raspberry Pi。
 
-On the Intel platform, we are going to need an existing C compiler.
-So, install this package (I give the Ubuntu/Debian commands):
+在 Intel 平台上，我们需要一个现成的 C 编译器。
+因此，请安装下面这个软件包（这里给出的是 Ubuntu/Debian 下的命令）：
 
 ```
   $ sudo apt-get install build-essential
 ```
 
-If there are any more tools required for a vanilla Linux
-system, let me know.
+如果一个标准 Linux 系统还需要别的工具，请告诉我。
 
-Finally, clone a copy of this Github repository.
+最后，克隆一份这个 Github 仓库即可。
 
-## The Next Step
+## 下一步
 
-In the next part of our compiler writing journey, we will start with
-the code to scan our input file and find the *tokens* that are the
-lexical elements of our language. [Next step](../01_Scanner/Readme.md)
+在这段编译器编写之旅的下一部分中，我们会先从扫描输入文件开始，
+找出组成这门语言词法元素的 *token*。 [下一步](../01_Scanner/Readme.md)
