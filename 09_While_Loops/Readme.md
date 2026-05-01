@@ -1,11 +1,10 @@
-# Part 9: While Loops
+# 第 9 部分：`while` 循环
 
-In this part of the journey we are going to add WHILE loops to our
-language. In some sense, a WHILE loop is very much like an IF statement
-without an 'else' clause, except that we always jump back to the top
-of the loop.
+在这一部分的旅程中，我们要给语言加入 `while` 循环。
+从某种意义上说，`while` 循环非常像一个没有 `else` 子句的 `if` 语句，
+只不过它会总是跳回循环顶部重新判断条件。
 
-So, this:
+所以，像这样：
 
 ```
   while (condition is true) {
@@ -13,7 +12,7 @@ So, this:
   }
 ```
 
-should get translated to:
+应该被翻译成：
 
 ```
 Lstart: evaluate condition
@@ -23,27 +22,28 @@ Lstart: evaluate condition
 Lend:
 ```
 
-This means that we can borrow the scanning, parsing and code generation
-structures that we used with IF statements and make some small changes
-to also deal with WHILE statements.
+这意味着，我们可以直接借用此前处理 `if` 语句时使用过的扫描、解析和代码生成结构，
+只需要做一些小修改，就能让它们也支持 `while`。
 
-Let's see how we make this happen.
+下面来看看具体怎么做到。
 
-## New Tokens
+## 新 token
 
-We need a new token, T_WHILE, for the new 'while' keyword. The changes
-to `defs.h` and `scan.c` are obvious so I'll omit them here.
+我们需要一个新的 token：`T_WHILE`，
+对应新的关键字 `while`。
+对 `defs.h` 和 `scan.c` 的修改都很直观，
+这里就不展开了。
 
-## Parsing the While Syntax
+## 解析 `while` 语法
 
-The BNF grammar for the WHILE loop is:
+`while` 循环的 BNF 语法如下：
 
 ```
 // while_statement: 'while' '(' true_false_expression ')' compound_statement  ;
 ```
 
-and we need a function in `stmt.c` to parse this. Here it is; note the
-simplicity of this compared to the parsing of IF statements:
+于是我们需要在 `stmt.c` 中写一个函数来解析它。
+代码如下；和解析 `if` 语句相比，它相当简单：
 
 ```c
 // Parse a WHILE statement
@@ -71,17 +71,18 @@ struct ASTnode *while_statement(void) {
 }
 ```
 
-We need a new AST node type, A_WHILE, which has been added to `defs.h`.
-This node has a left child sub-tree to evaluate the condition, and a
-right child sub-tree for the compound statement which is the body of the
-WHILE loop.
+我们需要一个新的 AST 节点类型 `A_WHILE`，
+它已经加入 `defs.h` 中。
+这个节点有一个左子树，用来求值循环条件；
+还有一个右子树，用来保存作为 `while` 主体的复合语句。
 
-## Generic Code Generation
+## 通用代码生成
 
-We need to create a start and end label, evaluate the condition and
-insert appropriate jumps to exit the loop and to return to the top of the
-loop. Again, this is much simpler than the code to generate IF statements.
-In `gen.c`:
+我们需要创建开始标签和结束标签，
+求值条件，并插入适当的跳转：
+条件不成立时跳出循环，循环体执行完后跳回顶部。
+这部分代码依然比生成 `if` 语句简单得多。
+在 `gen.c` 中：
 
 ```c
 // Generate the code for a WHILE statement
@@ -113,9 +114,11 @@ static int genWHILE(struct ASTnode *n) {
 }
 ```
 
-One thing I had to do was recognise that the parent AST node
-of the comparison operators could now be A_WHILE, so in `genAST()`
-the code for the comparison operators looks like:
+有一件事我必须处理：
+比较运算符的父 AST 节点现在除了可能是 `A_IF` 以外，
+也可能是 `A_WHILE`。
+因此在 `genAST()` 中，
+处理比较运算符的代码现在变成了：
 
 ```c
     case A_EQ:
@@ -133,13 +136,14 @@ the code for the comparison operators looks like:
         return (cgcompare_and_set(n->op, leftreg, rightreg));
 ```
 
-And that, altogether, is all we need to implement WHILE loops!
+而这基本上就是实现 `while` 循环所需的全部内容了。
 
-## Testing the New Language Additions
+## 测试语言的新能力
 
-I've moved all of the input files into a `test/` directory. If you now
-do `make test`, it will go into this directory, compile each input
-and compare the output against known-good output:
+我把所有输入文件都移到了 `tests/` 目录里。
+现在如果执行 `make test`，
+它会进入这个目录，编译每个输入文件，
+并把输出与已知正确结果进行比较：
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c scan.c stmt.c
@@ -153,7 +157,8 @@ input05: OK
 input06: OK
 ```
 
-You can also do a `make test6`. This compiles the `tests/input06` file:
+你也可以执行 `make test6`。
+这会编译 `tests/input06` 文件：
 
 ```c
 { int i;
@@ -165,7 +170,7 @@ You can also do a `make test6`. This compiles the `tests/input06` file:
 }
 ```
 
-This will print out the numbers from 1 to 10:
+它会打印 1 到 10：
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c scan.c
@@ -185,7 +190,7 @@ cc -o out out.s
 10
 ```
 
-And here is the assembly output from the compilation:
+下面是编译后生成的汇编输出：
 
 ```
 	.comm	i,8,8
@@ -208,21 +213,20 @@ L2:
 ```
 
 
-## Conclusion and What's Next
+## 总结与下一步
 
-The WHILE loop was easy to add, once we had already done the IF statement
-as they share a lot of similarities.
+有了前面 `if` 语句的实现经验之后，
+`while` 循环就很容易加进来了，
+因为它们共享了大量相似结构。
 
-I think we also now have a
-[Turing-complete](https://en.wikipedia.org/wiki/Turing_completeness)
-language:
+我觉得我们现在其实已经拥有了一门
+[图灵完备（Turing-complete）](https://en.wikipedia.org/wiki/Turing_completeness) 的语言：
 
-  + an infinite amount of storage, i.e. an infinite number of variables
-  + the ability to make decisions based on stored values, i.e. IF statements
-  + the ability to change directions, i.e. WHILE loops
+  + 无限量的存储，也就是无限数量的变量
+  + 基于存储值做决策的能力，也就是 `if` 语句
+  + 改变执行方向的能力，也就是 `while` 循环
 
-So we can stop now, our job is done! No, of course not. We are still
-working towards getting the compiler to compile itself.
+所以我们现在就可以停手，任务完成了！当然不是。
+我们的最终目标仍然是让这个编译器能够编译自己。
 
-In the next part of our compiler writing journey, we will add FOR loops
-to the language. [Next step](../10_For_Loops/Readme.md)
+在编译器编写之旅的下一部分中，我们会给语言加入 `for` 循环。 [下一步](../10_For_Loops/Readme.md)

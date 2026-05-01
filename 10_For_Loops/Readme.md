@@ -1,19 +1,20 @@
-# Part 10: FOR Loops
+# 第 10 部分：`for` 循环
 
-In this part of our compiler writing journey I'm going to add FOR loops.
-There is a wrinkle to work out in terms of implementation which I want
-to explain before I get to the discussion on how it got solved.
+在编译器编写之旅的这一部分中，我要加入 `for` 循环。
+不过在实现上有一个小麻烦，
+我想先把它讲清楚，再进入具体的解决过程。
 
-## The FOR Loop Syntax
+## `for` 循环的语法
 
-I assume that you are familiar with the syntax of FOR loops. One example is
+我默认你已经熟悉 `for` 循环的语法。
+例如下面这个例子：
 
 ```c
   for (i=0; i < MAX; i++)
     printf("%d\n", i);
 ```
 
-I'm going to use this BNF syntax for our language:
+在我们的语言里，我准备使用如下 BNF 语法：
 
 ```
  for_statement: 'for' '(' preop_statement ';'
@@ -24,40 +25,43 @@ I'm going to use this BNF syntax for our language:
  postop_statement: statement  ;        (for now)
 ```
 
-The `preop_statement` is run before the loop starts. Later on, we will
-have to limit exactly what sort of actions can be performed here (e.g. no
-IF statements). Then the `true_false_expression` is evaluated. If true
-the loop executes the `compound_statement`. Once this is done, the
-`postop_statement` is performed and the code loops back to redo the
-`true_false_expression`.
+`preop_statement` 会在循环开始前执行。
+以后我们还得精确限制这里到底允许哪些动作
+（例如，不能出现 `if` 语句）。
+然后求值 `true_false_expression`。
+如果条件为真，就执行 `compound_statement`。
+执行完主体后，再执行 `postop_statement`，
+随后跳回去重新判断 `true_false_expression`。
 
-## The Wrinkle
+## 这个小麻烦
 
-The wrinkle is that the `postop_statement` is parsed before the
-`compound_statement`, but we have to generate the code for the
-`postop_statement` *after* the code for the `compound_statement`.
+这个麻烦在于：
+`postop_statement` 在解析时出现在 `compound_statement` 之前，
+但我们生成代码时，却必须把 `postop_statement` 的代码放在
+`compound_statement` 之后。
 
-There are several ways to solve this problem. When I wrote a previous
-compiler, I chose to put the `compound_statement` assembly code in
-a temporary buffer, and "play back" the buffer once I'd generated
-the code for the `postop_statement`. In the SubC compiler, Nils
-makes clever use of labels and jumps to labels to "thread" the code's
-execution to enforce the correct sequence.
+解决这个问题的方法有很多。
+我以前写过一个编译器，当时的做法是先把 `compound_statement`
+对应的汇编代码放进一个临时缓冲区里，
+等 `postop_statement` 的代码生成完之后，再把缓冲区“回放”出来。
+在 SubC 编译器中，Nils 则巧妙地利用标签和跳转，
+把代码执行顺序“穿”成了正确的流向。
 
-But we build an AST tree here. Let's use it to get the generated assembly
-code in the correct sequence.
+但我们这里是构建 AST。
+那就让 AST 来帮我们把汇编代码生成顺序搞对。
 
-## What Sort of AST Tree?
+## 该构造什么样的 AST？
 
-You might have noticed that a FOR loop has four structural components:
+你可能已经注意到了，`for` 循环有四个结构组成部分：
 
- 1. The `preop_statement`
- 2. The `true_false_expression`
- 3. The `postop_statement`
- 4. The `compound_statement`
+1. `preop_statement`
+2. `true_false_expression`
+3. `postop_statement`
+4. `compound_statement`
 
-I don't really want to change the AST node structure yet again to have
-four children. But we can visualise a FOR loop as an augmented WHILE loop:
+我实在不想再一次修改 AST 节点结构，
+把它扩展成四个孩子。
+不过我们完全可以把 `for` 循环看作一个增强版的 `while` 循环：
 
 ```
    preop_statement;
@@ -67,8 +71,8 @@ four children. But we can visualise a FOR loop as an augmented WHILE loop:
    }
 ```
 
-Can we build an AST tree with our existing node types to reflect this
-structure? Yes:
+那我们能不能用现有节点类型，
+构造出一棵能反映这个结构的 AST？可以：
 
 ```
          A_GLUE
@@ -80,50 +84,57 @@ structure? Yes:
             compound  postop
 ```
 
-Manually traverse this tree top-down left-to-right and convince yourself
-that we will generate the assembly code in the right order.
-We had to glue the `compound_statement` and the `postop_statement`
-together so that, when the WHILE loop exits, it will skip over both the
-`compound_statement` and the `postop_statement`.
+你可以手动按“自顶向下、从左到右”的顺序遍历这棵树，
+就会发现生成出来的汇编代码顺序正好是正确的。
+我们必须把 `compound_statement` 和 `postop_statement`
+粘成一棵子树，
+这样当 `while` 循环退出时，
+才能一次性越过它们两个。
 
-This also means that we need a new T_FOR token but we won't need a new
-AST node type. So the only compiler change will be scanning and parsing.
+这也意味着，我们只需要新增一个 `T_FOR` token，
+却不需要新增 AST 节点类型。
+因此，对编译器的改动只涉及扫描和解析。
 
-## Tokens and Scanning
+## token 与扫描
 
-There is a new keyword 'for' and an associated token, T_FOR. No
-big changes here.
+这里新增了关键字 `for`，
+以及对应的 token `T_FOR`。
+没有什么大变化。
 
-## Parsing Statements
+## 解析语句
 
-We do need to make a structural change to the parser. For the FOR
-grammar, I only want a single statement as the `preop_statement`
-and the `postop_statement`. Right now, we have a `compound_statement()`
-function that simply loops until it hits a right curly bracket '}'.
-We need to separate this out so `compound_statement()` calls
-`single_statement()` to get one statement.
+不过我们确实需要对解析器做一点结构性调整。
+因为在 `for` 语法里，
+我只希望 `preop_statement` 和 `postop_statement`
+各自只是一条语句。
 
-But there's another wrinkle. Take the existing parsing of assignment
-statements in `assignment_statement()`. The parser must find a semicolon
-at the end of the statement.
+目前我们有一个 `compound_statement()`，
+它会一直循环，直到遇到右花括号 `}` 才停下。
+我们需要把这部分逻辑拆出来，
+让 `compound_statement()` 改为调用 `single_statement()`
+来获取单条语句。
 
-That's good for compound statements but it won't work for FOR loops.
-I would have to write something like:
+但这里还有另一个麻烦。
+看看现有 `assignment_statement()` 对赋值语句的解析：
+解析器必须在语句结尾找到一个分号。
+
+这对复合语句来说没问题，
+但对 `for` 循环却不合适。
+否则我就不得不写出这样的东西：
 
 ```c
   for (i=1 ; i < 10 ; i= i + 1; )
 ```
 
-because each assignment statement *must* end with a semicolon.
+因为每一个赋值语句*都必须*以分号结束。
 
-What we need is for the single statement parser *not* to scan in the
-semicolon, but to leave that up to the compound statement parser.
-And we scan in semicolons for some statements (e.g. between assignment
-statements) and not for other statements (e.g. not between successive
-IF statements). 
+我们真正需要的是：
+单语句解析器本身*不要*去消费分号，
+而把是否读取分号的决定交给复合语句解析器。
+并且有些语句之间需要分号（例如连续赋值语句），
+有些则不需要（例如连续出现的 `if` 语句）。
 
-With all of that explained, let's now look at the new single and compound
-statement parsing code:
+把这些背景都解释完之后，再来看新的单语句和复合语句解析代码：
 
 ```c
 // Parse a single statement
@@ -185,14 +196,15 @@ struct ASTnode *compound_statement(void) {
 }
 ```
 
-I've also removed the calls to `semi()` in `print_statement()` and
-`assignment_statement()`.
+我也顺手把 `print_statement()` 和
+`assignment_statement()` 里对 `semi()` 的调用删掉了。
 
-## Parsing FOR Loops
+## 解析 `for` 循环
 
-Given the BNF syntax for FOR loops above, this is straightforward. And
-given the shape of the AST tree we want, the code to build this tree is
-also straightforward. Here's the code:
+有了前面那套 BNF 语法之后，
+解析 `for` 循环就相当直接了。
+而且，因为我们已经知道自己想要的 AST 形状，
+构建这棵树的代码也很直接。代码如下：
 
 ```c
 // Parse a FOR statement
@@ -237,15 +249,15 @@ static struct ASTnode *for_statement(void) {
 }
 ```
 
-## Generating the Assembly Code
+## 生成汇编代码
 
-Well, all we have done is synthesized a tree which has a WHILE loop
-in it with some sub-trees glued together, so there are no changes
-to the generation side of the compiler.
+其实我们只是“合成”出了一棵内部含有 `while` 循环、
+并且带着若干 `A_GLUE` 子树的 AST。
+因此，编译器在代码生成这一侧完全不需要做改动。
 
-## Trying It Out
+## 试一试
 
-The `tests/input07` file has this program in it:
+`tests/input07` 文件里有下面这个程序：
 
 ```c
 {
@@ -256,7 +268,7 @@ The `tests/input07` file has this program in it:
 }
 ```
 
-When we do `make test7`, we get this output:
+执行 `make test7` 后，会得到下面的输出：
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c scan.c
@@ -276,7 +288,7 @@ cc -o out out.s
 10
 ```
 
-and here is the relevant assembly output:
+下面是相关的汇编输出：
 
 ```
 	.comm	i,8,8
@@ -298,19 +310,20 @@ L1:
 L2:
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We now have a reasonable number of control structures in our language:
-IF statements, WHILE loops and FOR loops. The question is, what to
-tackle next? There are so many things we could look at:
+现在我们的语言已经有了数量还算不错的控制结构：
+`if` 语句、`while` 循环和 `for` 循环。
+接下来的问题是：下一步该啃什么？
+可选项实在太多了：
 
- + types
- + local versus global things
- + functions
- + arrays and pointers
- + structures and unions
- + auto, static and friends
+ + 类型
+ + 局部与全局
+ + 函数
+ + 数组与指针
+ + 结构体与联合体
+ + `auto`、`static` 之类
 
-I've decided to look at functions. So,
-in the next part of our compiler writing journey, we will begin
-the first of several stages to add functions to our language. [Next step](../11_Functions_pt1/Readme.md)
+我决定先看函数。
+所以，在编译器编写之旅的下一部分中，
+我们会开始为语言加入函数支持的第一阶段。 [下一步](../11_Functions_pt1/Readme.md)
