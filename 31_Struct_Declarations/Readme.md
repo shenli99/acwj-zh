@@ -1,21 +1,24 @@
-# Part 31: Implementing Structs, Part 1
+# 第 31 部分：实现结构体，第 1 部分
 
-In this part of our compiler writing journey, I've begun the process of
-implementing structs into the language. Even though these are not yet
-functional, I've made substantial changes to the code just to get
-to the point where we can declare structs, and global variables of struct
-type.
+在编译器编写之旅的这一部分里，
+我开始把 struct 真正引入语言之中。
+虽然它们此时还不能完全使用，
+但为了至少先走到“能够声明 struct，
+并且能够声明 struct 类型的全局变量”这一步，
+我已经对代码做了相当多改动。
 
-## Symbol Table Changes
+## 符号表的变更
 
-As I mentioned in the last part, we need to change the symbol table structure
-to include a pointer to a composite type node, when the symbol is of this
-type. We also added a `next` pointer to support linked lists, and a
-`member` pointer. The `member` pointer of a function node holds the function's
-parameter list. We will use the `member` node for structs to hold the struct's
-member fields.
+正如上一部分提到的，
+一旦某个符号属于复合类型，
+我们就必须在符号表结构里额外保存一个“指向该复合类型节点的指针”。
+另外我们也已经加入了 `next` 指针来支持链表，
+以及 `member` 指针。
+函数节点中的 `member` 指针用于保存函数参数列表；
+而对于 struct 来说，
+我们会用这个 `member` 指针来保存 struct 的成员字段。
 
-So, we now have:
+因此现在我们有：
 
 ```c
 struct symtable {
@@ -28,7 +31,8 @@ struct symtable {
 };                              // union or enum
 ```
 
-We also have two new lists for symbols in `data.h`:
+同时在 `data.h` 中，
+我们又新增了两条符号链表：
 
 ```c
 // Symbol table lists
@@ -39,51 +43,65 @@ struct symtable *Membhead, *Membtail;     // Temp list of struct/union members
 struct symtable *Structhead, *Structtail; // List of struct types
 ```
 
-## Changes to `sym.c`
+## `sym.c` 的改动
 
-Throughout `sym.c`, and elsewhere in the code, we used to only receive
-the `int type` argument to determine the type of something. This isn't
-enough now that we have composite types: the P_STRUCT integer value
-tells us that something is a struct, not which one.
+在 `sym.c` 以及代码库其他地方，
+我们以前通常只通过一个 `int type` 参数
+来判断某个东西的类型。
+但现在有了复合类型之后，
+这就不够了：
+`P_STRUCT` 这个整数值只能说明“这是个 struct”，
+却不能说明“它到底是哪个 struct”。
 
-Therefore, many functions now receive an `int type` argument and also a
-`struct symtable *ctype` argument. When `type` is P_STRUCT, `ctype`
-points at the node which defines this particular struct type.
+因此，
+现在很多函数除了接收 `int type` 之外，
+还会额外接收一个 `struct symtable *ctype` 参数。
+当 `type == P_STRUCT` 时，
+`ctype` 会指向定义这个具体 struct 类型的那个节点。
 
-In `sym.c`, all the `addXX()` functions have been modified to have this
-extra argument. There is also a new `addmemb()` function and a new
-`addstruct()` function to add nodes to these two new lists. They
-function identically to the other `addXX()` functions but just on a
-different list. I will come back to these functions later.
+在 `sym.c` 中，
+所有 `addXX()` 函数都已经改成接收这个额外参数。
+另外还新增了 `addmemb()` 和 `addstruct()`，
+分别往这两条新链表里加入节点。
+它们和其他 `addXX()` 函数在逻辑上完全相同，
+只是作用于不同的链表。
+后面我会再回头讲它们。
 
-## A New Token
+## 一个新 token
 
-We have our first new token, P_STRUCT, in quite a while. It goes with
-the matching `struct` keyword. I'll omit the changes to `scan.c` as
-they are minor.
+我们已经很久没有新 token 了，
+这次新增的是 `P_STRUCT`，
+对应关键字 `struct`。
+`scan.c` 中的扫描改动都比较小，
+我这里就不展开了。
 
-## Parsing Structs in our Grammar
+## 在语法中解析 struct
 
-There are a bunch of places where we need to parse the `struct` keyword:
+我们需要在很多地方解析 `struct` 关键字：
 
-  + the definition of a named struct
-  + the definition of an unnamed struct followed by a variable of this type
-  + the definition of a struct within another struct or union
-  + the definition of a variable of a previously defined struct type
+  + 具名 struct 的定义
+  + 匿名 struct 的定义，后面紧跟一个该类型变量
+  + 在另一个 struct 或 union 中定义一个 struct
+  + 声明一个“先前已经定义过的 struct 类型”的变量
 
-At first, I wasn't sure where to fit in the parsing of structs. Should I
-assume that we are parsing a new struct definition, but bail out when I
-see a variable identifier, or assume a variable declaration?
+一开始我其实不太确定该把 struct 解析挂在哪一层。
+是应该先假设“这里在定义一个新的 struct”，
+等看到变量标识符时再退出来；
+还是应该先按变量声明去理解？
 
-In the end, I realised that, after seeing `struct <identifier>`, I had
-to assume that this was just the naming of a type, just as `int` is the
-naming of the `int` type. We had to parse the next token to determine
-otherwise.
+最后我意识到，
+在看到 `struct <identifier>` 之后，
+我们首先必须把它理解成“某种类型名”，
+就像 `int` 是 `int` 类型的名字一样。
+至于后面是不是紧跟着真正的定义，
+得继续看下一个 token 才知道。
 
-Therefore, I modified `parse_type()` in `decl.c` to parse both scalar
-types (e.g. `int`) and composite types (e.g. `struct foo`). And now
-that it can return a composite type, I had to find a way to return
-the pointer to the node that defines this composite type:
+因此，
+我修改了 `decl.c` 里的 `parse_type()`，
+让它既能解析标量类型（例如 `int`），
+也能解析复合类型（例如 `struct foo`）。
+而现在既然它可能返回复合类型，
+那我们还得想办法把“定义这个复合类型的节点指针”也一并传回来：
 
 ```c
 // Parse the current token and return
@@ -101,30 +119,35 @@ int parse_type(struct symtable **ctype) {
     ...
 ```
 
-We call `struct_declaration()`to either look up an existing struct type
-or to parse the declaration of the new struct type.
+这里我们调用 `struct_declaration()`，
+它要么查找一个已经存在的 struct 类型，
+要么解析一个新的 struct 类型声明。
 
-## Refactoring The Parsing of a Variable List
+## 重构变量列表的解析
 
-In our old code, there was a function called `param_declaration()` that
-parsed a list of parameters separated by commas, e.g.
+旧代码里有一个叫 `param_declaration()` 的函数，
+它负责解析“逗号分隔”的参数列表，例如：
 
 ```c
 int fred(int x, char y, long z);
 ```
 
-such as you would find as the parameter list for a function declaration.
-Well, a struct and union declaration also has a list of variables,
-except that they are separated by semicolons and surrounded by curly
-brackets, e.g.
+也就是函数声明里的参数列表。
+但 struct 和 union 声明其实也会有一串变量列表，
+只不过它们不是逗号分隔，
+而是“分号分隔、并放在花括号里”，例如：
 
 ```c
 struct fred { int x; char y; long z; };
 ```
 
-It makes sense to refactor the function to parse both lists. It now
-is passed two tokens: the separating token, e.g. T_SEMI and the ending
-token, e.g. T_RBRACE. Thus, we can use it to parse both styles of lists.
+所以把这个函数重构成能同时处理两种列表形式，
+就很合理了。
+它现在会接收两个 token：
+一个是分隔 token，比如 `T_SEMI`；
+另一个是结束 token，比如 `T_RBRACE`。
+这样一来，
+我们就能拿它去解析这两种不同风格的列表。
 
 ```c
 // Parse a list of variables.
@@ -142,28 +165,33 @@ static int var_declaration_list(struct symtable *funcsym, int class,
 }
 ```
 
-When we are parsing function parameter lists, we call:
+当我们在解析函数参数列表时，
+调用方式是：
 
 ```c
     var_declaration_list(oldfuncsym, C_PARAM, T_COMMA, T_RPAREN);
 ```
 
-When we are parsing struct member lists, we call:
+而在解析 struct 成员列表时，
+调用方式则是：
 
 ```c
     var_declaration_list(NULL, C_MEMBER, T_SEMI, T_RBRACE);
 ```
 
-Also note that the call to `var_declaration()` now is given the type of
-the variable, the composite type pointer (if it is a struct or union),
-and the variable's class. 
+同时也要注意：
+现在传给 `var_declaration()` 的参数
+除了变量类型之外，
+还包括“复合类型指针”（如果它是 struct 或 union）
+以及该变量的 class。
 
-Now we can parse the lists of members of a struct. So let's see how we
-parse the whole struct.
+到这里为止，
+我们已经能解析 struct 的成员列表了。
+下面就来看整个 struct 到底是怎么被解析出来的。
 
-## The `struct_declaration()` Function
+## `struct_declaration()` 函数
 
-Let's take this in stages.
+我们分阶段来看。
 
 ```c
 static struct symtable *struct_declaration(void) {
@@ -182,9 +210,12 @@ static struct symtable *struct_declaration(void) {
   }
 ```
 
-At this point we have seen `struct` possibly followed by an identifier.
-If this is an existing struct type, `ctype` now points at the existing
-type node. Otherwise, `ctype` is NULL.
+到这里为止，
+我们已经看到了 `struct`，
+后面可能还跟着一个标识符。
+如果它代表一个已存在的 struct 类型，
+那 `ctype` 现在就会指向那个已有类型节点；
+否则 `ctype` 仍然是 `NULL`。
 
 ```c
   // If the next token isn't an LBRACE , this is
@@ -197,17 +228,23 @@ type node. Otherwise, `ctype` is NULL.
   }
 ```
 
-We didn't see a '{', so this has to be just the naming of an existing type.
-`ctype` cannot be NULL, so we check that first and then simply return the
-pointer to this existing struct type. This is going to go back to
-`parse_type()` when we did:
+如果下一个 token 不是 `{`，
+那就说明这里不是在定义新的 struct，
+而只是“使用一个已经存在的 struct 类型名”。
+这时 `ctype` 就绝不应该还是 `NULL`，
+所以先检查一下；
+然后直接把这个已有类型节点指针返回即可。
+它会一路回到前面 `parse_type()` 里，
+也就是：
 
 ```c
       type = P_STRUCT; *ctype = struct_declaration();
 ```
 
-But, assuming we didn't return, we must have found a '{', and this signals
-the definition of a struct type. Let's go on...
+但如果我们没有在这里提前返回，
+那就说明确实看到了 `{`，
+这就表示：这里正在定义一个新的 struct 类型。
+继续往下看。
 
 ```c
   // Ensure this struct type hasn't been
@@ -220,9 +257,12 @@ the definition of a struct type. Let's go on...
   scan(&Token);
 ```
 
-We can't declare a struct with the same name twice, so prevent this.
-Then build the beginnings of the new struct type as a node in the
-symbol table. All we have so far is its name and that it is of P_STRUCT type.
+同名 struct 不能定义两次，
+所以这里必须先阻止这种情况。
+然后构建一个新的 struct 类型节点，
+并把它挂进符号表。
+此时我们手头只有它的名字，
+以及“它是一个 `P_STRUCT` 类型”这件事。
 
 ```c
   // Scan in the list of members and attach
@@ -231,25 +271,31 @@ symbol table. All we have so far is its name and that it is of P_STRUCT type.
   rbrace();
 ```
 
-This parses the list of members. For each one, a new symbol node is appended
-to the list that `Membhead` and `Membtail` point to. This list is only
-temporary, because the next lines of code move the member list into the 
-new struct type node:
+这一步会去解析成员列表。
+列表中的每个成员，
+都会作为新的符号节点追加到
+`Membhead` / `Membtail` 指向的链表上。
+这条链表只是临时用的，
+因为接下来的几行代码会把它挪进这个新的 struct 类型节点里：
 
 ```c
   ctype->member = Membhead;
   Membhead = Membtail = NULL;
 ```
 
-We now have a struct type node with a name, and the list of members in the
-struct. What's left to do? Well, we now need to determine:
+到这里，
+我们已经有了一个 struct 类型节点：
+它有名字，
+也挂好了该 struct 的成员链表。
+那接下来还剩什么？
+我们现在还必须算出：
 
-  + the overall size of the struct, and
-  + the offset of each member from the base of the struct
+  + 整个 struct 的总大小
+  + 每个成员相对于 struct 基址的偏移量
 
-Some of this is very hardware-specific due to the alignment of scalar
-values in memory. So I'll give the code as it stands now, and then
-follow the function call structure later.
+这其中有一部分会受到硬件对标量内存对齐方式的影响，
+因此我先把现有代码给出来，
+后面再顺着函数调用链去解释。
 
 ```c
   // Set the offset of the initial member
@@ -259,13 +305,18 @@ follow the function call structure later.
   offset = typesize(m->type, m->ctype);
 ```
 
-We now have a new function, `typesize()` to get the size of any type:
-scalar, pointer or composite. The first member's position is set to zero,
-and we use its size to determine the first possible byte where the next
-member could be stored. But now we need to worry about alignment.
+我们现在有了一个新函数 `typesize()`，
+它可以计算任意类型的大小：
+标量、指针和复合类型都行。
+第一个成员的位置总是 0，
+然后我们用它的大小去算出：
+下一个成员理论上最早可以放到哪个字节之后。
+不过从这里开始，
+我们就必须考虑对齐（alignment）问题了。
 
-As an example, on a 32-bit architecture where 4-byte scalar values have
-to be aligned on a 4-byte boundary:
+举个例子，
+在一个 32 位架构上，
+如果 4 字节标量必须对齐到 4 字节边界：
 
 ```c
 struct {
@@ -274,7 +325,8 @@ struct {
 };
 ```
 
-So here is the code to calculate the offset of each successive member:
+所以，
+下面就是计算“后续每个成员偏移量”的代码：
 
 ```c
   // Set the position of each successive member in the struct
@@ -287,18 +339,23 @@ So here is the code to calculate the offset of each successive member:
   }
 ```
 
-We have a new function, `genalign()` that takes a current offset and
-the type that we need to align, and returns the first offset that
-suits the alignment of this type. For example, `genalign(P_INT, 3, 1)`
-might return 4 if P_INTs have to be 4-aligned. I'll discuss the final 1
-argument soon.
+这里我们新增了一个 `genalign()`，
+它接收“当前偏移量”和“要对齐的类型”，
+返回这个类型最适合放置的下一个偏移量。
+比如 `genalign(P_INT, 3, 1)`
+在要求 `P_INT` 必须 4 字节对齐时，
+可能就会返回 4。
+至于最后那个 `1` 参数，
+我很快就会解释。
 
-So, `genalign()` works out the correct alignment for this member, and
-then we add on this member's size to get the next free (unaligned)
-position which is available for the next member.
+因此，
+`genalign()` 先为当前成员算出正确的对齐偏移，
+然后我们再把该成员自己的大小加上去，
+得到“下一个可用但尚未对齐”的空闲位置。
 
-Once we have done the above for all the members in the list, the
-`offset` is the size in bytes of the overall struct. So:
+当我们把成员链表全部走完之后，
+此时 `offset` 就刚好等于整个 struct 的总字节大小。
+于是：
 
 ```c
   // Set the overall size of the struct
@@ -307,10 +364,11 @@ Once we have done the above for all the members in the list, the
 }
 ```
 
-## The `typesize()` Function
+## `typesize()` 函数
 
-It's time to follow all the new functions to see what they do and how they
-do it. We'll start with `typesize()` in `types.c`:
+现在该顺着这些新函数往下看，
+搞清楚它们各自做了什么。
+先看 `types.c` 里的 `typesize()`：
 
 ```c
 // Given a type and a composite type pointer, return
@@ -322,22 +380,31 @@ int typesize(int type, struct symtable *ctype) {
 }
 ```
 
-If the type is a struct, return the size from the struct's type node.
-Otherwise it's a scalar or pointer type, so ask `genprimsize()`
-(which calls the hardware-specific `cgprimsize()`) to get the type's size.
-Nice and easy.
+如果类型是 struct，
+那就直接从 struct 类型节点中取出它的大小。
+否则它就是标量或指针类型，
+于是交给 `genprimsize()`
+（它内部又会调用平台相关的 `cgprimsize()`）
+去计算大小。
+这部分很直白。
 
-## The `genalign()` and `cgalign()` Functions
+## `genalign()` 和 `cgalign()` 函数
 
-Now we get into some not so nice code. Given a type and an existing
-unaligned offset, we need to know which is the next aligned position
-to place a value of the given type.
+接下来就进入一些没那么好看的代码了。
+给定一个类型，
+以及一个还没有分配给任何东西的“未对齐偏移量”，
+我们要算出：
+放置这个类型值时，
+下一个满足对齐要求的偏移量到底是多少。
 
-I also was worried that we might need to do this on the stack, which
-grows downwards not upwards. So there is a third argument to the function:
-the *direction* in which we need to find the next aligned position.
+另外我还担心，
+这个逻辑以后可能也要用于栈上；
+而栈是向下增长的，不是向上。
+所以这里又加了第三个参数：
+表示“我们要往哪个方向寻找下一个可对齐位置”。
 
-Also, the knowledge of alignment is hardware specific, so:
+而且对齐规则本身又是硬件相关的，
+因此：
 
 ```c
 int genalign(int type, int offset, int direction) {
@@ -345,7 +412,7 @@ int genalign(int type, int offset, int direction) {
 }
 ```
 
-and we turn our attention to `cgalign()` in `cg.c`:
+接着我们就去看 `cg.c` 中的 `cgalign()`：
 
 ```c
 // Given a scalar type, an existing memory offset
@@ -375,21 +442,31 @@ int cgalign(int type, int offset, int direction) {
 }
 ```
 
-Firstly, yes I know that we don't have to worry about alignment in the
-x86-64 architecture. But I thought we should go through the exercise of
-dealing with alignment, so there is an example of it being done which can
-be borrowed for other backends that may be written.
+首先先说一句，
+我知道在 x86-64 上其实根本不必担心这些对齐问题。
+但我还是觉得，
+最好把这套逻辑先走一遍，
+至少给未来其他后端留一个现成参考。
 
-The code returns the given offset for `char` types, as they can be
-stored at any alignment. But we enforce a 4-byte alignment on `int`s
-and `long`s.
+对 `char` 类型，
+函数直接返回原偏移，
+因为它本来就可以放在任意对齐位置。
+而对 `int` 和 `long`，
+我们这里强制它们按 4 字节对齐。
 
-Let's break down the big offset expression. The first `alignment-1`
-turns `offset` 0 into 3, 1 into 4, 2 into 5 etc. Then, at the end
-we AND this with the inverse of 3, i.e. ...111111100 to discard the
-last two bits and lower the value back down to the correct alignment.
+下面拆一下那条大的偏移计算表达式。
+前面的 `alignment-1`
+会把 `offset` 为 0 变成 3，
+1 变成 4，
+2 变成 5，
+以此类推。
+然后最后再和 `~3`
+也就是形如 `...111111100`
+做一次 AND，
+把低两位清掉，
+从而把值拉回到正确的对齐位置。
 
-Thus:
+所以结果会是：
 
 | Offset | Add Value | New Offset |
 |:------:|:---------:|:----------:|
@@ -402,12 +479,17 @@ Thus:
 |   6    |    9      |    8       |
 |   7    |   10      |    8       |
 
-An offset of 0 stays at zero, but values 1 to 3 are pushed up to 4.
-4 stays aligned at 4, but 5 to 7 get pushed up to 8.
+偏移 0 会继续保持 0；
+但 1 到 3 都会被推到 4。
+偏移 4 自己本来就对齐；
+而 5 到 7 则会被推到 8。
 
-Now the magic. A `direction` of 1 does everything that we have seen so far.
-A `direction` of -1 sends the offset in the opposite direction to ensure
-that the value's "high end" won't hit what's above it:
+下面来看这个函数里真正比较有魔法感的部分。
+当 `direction == 1` 时，
+它的行为就是上面我们刚分析的这种“向上找对齐”。
+而当 `direction == -1` 时，
+它就会反过来往另一个方向对齐，
+确保这个值的“高地址端”不会撞到它上面那块空间：
 
 | Offset | Add Value | New Offset |
 |:------:|:---------:|:----------:|
@@ -420,10 +502,12 @@ that the value's "high end" won't hit what's above it:
 |  -6    |   -9      |   -12      |
 |  -7    |  -10      |   -12      |
 
-## Creating a Global Struct Variable
+## 创建一个全局 struct 变量
 
-So now we can parse a struct type, and declare a global variable to this type.
-Now let's modify the code to allocate the memory space for a global variable:
+既然现在我们已经能解析 struct 类型，
+并且也能声明这个类型的全局变量，
+那就该修改代码，
+让它真的为这种全局变量分配内存空间了：
 
 ```c
 // Generate a global symbol but not functions
@@ -454,13 +538,16 @@ void cgglobsym(struct symtable *node) {
   
 ```
 
-## Trying The Changes Out
+## 试试这些改动
 
-We don't have any new functionality apart from parsing structs,
-storing new nodes in the symbol table and generating storage
-for global struct variables.
+除了“能解析 struct”之外，
+我们目前还没有真正新增太多功能。
+现在能做的主要是：
+解析 struct、
+把新节点存进符号表，
+以及为全局 struct 变量生成存储空间。
 
-I have this test program, `z.c`:
+我这里有一个测试程序 `z.c`：
 
 ```c
 struct fred { int x; char y; long z; };
@@ -469,14 +556,17 @@ struct { int x; };
 struct fred var2;
 ```
 
-which should create two global variables `var1` and `var2`. We create
-two named struct types, `fred` and `foo`, and one unnamed struct.
-The third struct should cause an error (or at least a warning) because
-there is no variable associated with the struct, so the struct itself
-is useless.
+它应该会创建两个全局变量 `var1` 和 `var2`。
+这里我们定义了两个具名 struct 类型：`fred` 和 `foo`，
+以及一个匿名 struct。
+第三个 struct 理论上应该报错
+（至少也该有个 warning），
+因为它没有绑定任何变量，
+所以这个 struct 本身其实毫无用途。
 
-I added some test code to print out the member offsets and struct sizes
-for the above structs, and this is the result:
+我又加了一点测试代码，
+把这些 struct 的成员偏移和整体大小打印出来，
+结果如下：
 
 ```
 Offset for fred.x is 0
@@ -492,7 +582,9 @@ Offset for struct.x is 0
 Size of struct struct is 4
 ```
 
-Finally, when I do `./cwj -S z.c`, I get this assembly output:
+最后，
+当我执行 `./cwj -S z.c` 时，
+得到的汇编输出如下：
 
 ```
         .globl  var1
@@ -504,19 +596,22 @@ var2:   .byte   0
         ...
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-In this part I've had to change a lot of the existing code from dealing
-with just an `int type` to dealing with an `int type; struct symtable *ctype`
-pair. I'm sure I'll have to do this in more places.
+这一部分里，
+我不得不把大量旧代码
+从“只处理一个 `int type`”
+改成“同时处理 `int type; struct symtable *ctype` 这一对信息”。
+我很确定后面还得在更多地方做类似改造。
 
-We've added the parsing of struct definitions and also declarations of
-struct variables, and we can generate the space for global struct variables.
-At the moment, we can't use the struct variables that we have created.
-But it's a good start. I also haven't even tried to deal with local
-struct variables, because that involves the stack and I'm sure that
-will be complicated.
+我们现在已经能解析 struct 定义，
+也能声明 struct 变量，
+并为全局 struct 变量分配空间。
+不过眼下我们还不能真正使用这些 struct 变量。
+但这是个不错的开始。
+而且我还完全没碰局部 struct 变量，
+因为那会牵涉栈，
+我很确定它会相当复杂。
 
-In the next part of our compiler writing journey, I will try to 
-add the code to parse the '.' token so that we can access members
-in a struct variable. [Next step](../32_Struct_Access_pt1/Readme.md)
+在编译器编写之旅的下一部分中，
+我会尝试真正去访问 struct 成员。 [下一步](../32_Struct_Access_pt1/Readme.md)

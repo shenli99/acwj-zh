@@ -1,41 +1,53 @@
-# Part 33: Implementing Unions and Member Access
+# 第 33 部分：实现 union 与成员访问
 
-Unions also turned out to be easy to implement for one reason: they are like
-structs except that all members of a union are located at offset zero from the base of
-the union. Also, the grammar of a union declaration is the same as a struct except
-for the "union" keyword.
+union 之所以也很容易实现，
+核心原因只有一个：
+它几乎就像 struct，
+只是 union 的所有成员都位于“相对于 union 基址偏移 0”的位置。
+另外，
+union 声明的语法和 struct 声明也完全一样，
+除了关键字从 `struct` 换成了 `union`。
 
-This means that we can re-use and modify the existing structs code to deal with unions.
+这意味着，
+我们完全可以重用并稍作修改现有的 struct 代码，
+来处理 union。
 
-## A New Keyword: "union"
+## 一个新关键字：`union`
 
-I've added the "union" keyword and the T_UNION token to the scanner in `scan.c`.
-As always, I'll omit the code that does the scanning.
+我已经在 `scan.c` 中把关键字 `union`
+以及对应的 `T_UNION` token 加进扫描器了。
+照例，
+具体扫描代码我就不展开了。
 
-## The Union Symbol List
+## Union 符号链表
 
-As with structs, there is a singly-linked list to store unions (in `data.h`):
+和 struct 一样，
+我们也有一条单独的 union 链表
+（位于 `data.h`）：
 
 ```c
 extern_ struct symtable *Unionhead, *Uniontail;   // List of struct types
 ```
 
-In `sym.c`, I've also written `addunion()` and `findunion()` functions to
-add a new union type node to the list and to search for a union type with a given
-name on the list.
+在 `sym.c` 中，
+我还写了 `addunion()` 和 `findunion()`，
+分别用于把新 union 类型节点加进这条链表，
+以及在链表上按名字查找 union 类型。
 
-> I'm considering merging the struct and union lists into a single composite type
-  list, but I haven't done it yet. I'll probably do it when I get around to some
-  more refactoring.
+> 我在考虑把 struct 和 union 两条链表合并成一条统一的复合类型链表，
+  只是目前还没动手。
+  大概率会放到下一次重构里再做。
 
-## Parsing Union Declarations
+## 解析 union 声明
 
-We are going to modify the existing struct parsing code in `decl.c` to parse
-both structs and unions. I'll only give the changes to the functions, not the
-whole functions.
+我们接下来会修改 `decl.c` 中现有的 struct 解析代码，
+让它同时能处理 struct 与 union。
+这里我只给出变动部分，
+不把整个函数全贴出来。
 
-In `parse_type()`, we now scan the T_UNION token and call the function to parse
-both struct and union types:
+在 `parse_type()` 中，
+现在我们会扫描 `T_UNION`，
+并调用一个统一解析 struct / union 的函数：
 
 ```c
   case T_STRUCT:
@@ -48,12 +60,14 @@ both struct and union types:
     break;
 ```
 
-This function `composite_declaration()` was called `struct_declaration()` in the
-last part of our journey. It now takes the type that we are parsing.
+这个 `composite_declaration()`
+在上一部分里还叫 `struct_declaration()`。
+现在它会接收一个参数，
+表示当前正在解析的是哪种复合类型。
 
-## The `composite_declaration()` Function
+## `composite_declaration()` 函数
 
-Here are the changes:
+下面是改动部分：
 
 ```c
 // Parse composite type declarations: structs or unions.
@@ -90,14 +104,20 @@ static struct symtable *composite_declaration(int type) {
 }
 ```
 
-That's it. We simply change the symbol table list we are working on, and
-always set the member offset to zero for unions. This is why I think it
-would be worth merging the struct and union type lists into a single list.
+差不多就是这样。
+我们只不过是根据当前类型，
+切换到对应的符号链表上工作，
+并且在处理 union 时，
+始终把成员偏移量设为 0。
+这也正是我觉得“把 struct 和 union 类型链表合并成一条”
+很值得考虑的原因。
 
-## Parsing Union Expressions
+## 解析 union 表达式
 
-As with the union declarations, we can reuse the code that deals with
-structs in expressions. In fact, there are very few changes to make in `expr.c`.
+和 union 声明一样，
+表达式中处理 union 的逻辑也基本可以直接复用 struct 的代码。
+事实上，
+`expr.c` 里需要改动的地方非常少。
 
 ```c
 // Parse the member reference of a struct or union
@@ -112,9 +132,12 @@ static struct ASTnode *member_access(int withpointer) {
     fatals("Undeclared variable", Text);
 ```
 
-Again, that's it. The rest of the code was generic enough that we can use it for
-unions unmodified. And I think there was only one other major change, which was
-to a function in `types.c`:
+没错，
+基本就这点改动。
+其余代码原本就已经足够通用，
+可以不做修改地直接服务于 union。
+另外还有一处比较重要的变化，
+是在 `types.c` 的一个函数里：
 
 ```c
 // Given a type and a composite type pointer, return
@@ -126,9 +149,9 @@ int typesize(int type, struct symtable *ctype) {
 }
 ```
 
-## Testing the Union Code
+## 测试 union 代码
 
-Here's our test program, `test/input62.c`:
+下面是我们的测试程序 `test/input62.c`：
 
 ```c
 int printf(char *fmt);
@@ -156,11 +179,14 @@ int main() {
 }
 ```
 
-This tests that all four members in the union are at the same location, so that
-a change to one member is seen as the same change to all members. We also check
-that pointer access into a union also works.
+它会测试：
+union 里的四个成员是否真的都位于同一位置，
+从而使得“改一个成员”能通过另一个成员观察到相同的变化。
+另外也顺带验证：
+通过指针访问 union 成员是否同样工作。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-This was another nice and easy part of our compiler writing journey.
-In the next part of our compiler writing journey, we will add enums. [Next step](../34_Enums_and_Typedefs/Readme.md)
+这又是编译器编写之旅里一个相对轻松的部分。
+在下一部分中，
+我们会加入 enum。 [下一步](../34_Enums_and_Typedefs/Readme.md)
