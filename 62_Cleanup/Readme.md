@@ -1,31 +1,52 @@
-# Part 62: Code Cleanup
+# 第 62 部分：代码清理
 
-This version of the compiler is essentially the same as in part 60.
-I am using this part to fix up comments, fix up bugs, do a bit of
-code cleanup, rename some functions and variables etc.
+这个版本的编译器，
+本质上和第 60 部分里的那个版本差不多。
+我在这一部分主要是想：
+修一修注释、
+修一些 bug、
+做一点代码清理，
+顺手重命名一些函数和变量，
+等等。
 
-## Some Small Bugfixes
+## 一些小型 bug 修复
 
-For the changes to the compiler that I'm planning, I need to be able
-to put structs into structs. Therefore, I should be able to do:
+为了支持接下来准备做的那些改动，
+我需要让 struct
+里可以再嵌套 struct。
+也就是说，
+像下面这样的写法应该能成立：
 
 ```c
    printf("%d\n", thing.member1.age_in_years);
 ```
 
-where `thing` is a struct, but it has a `member1` which is of type struct.
-To do this, we need to find the offset of `member1` from the base of
-`thing`, then find the offset of `age_in_years` from the previous offset.
+这里 `thing`
+本身是一个 struct，
+而它里面的 `member1`
+也同样是 struct 类型。
+要完成这种访问，
+我们就得先从 `thing`
+的基地址算出 `member1`
+的偏移量，
+然后再基于那个偏移量，
+继续算出 `age_in_years`
+的偏移量。
 
-However, the code to do this expects the things on the left-hand side of
-the '.' token to be a variable which has a symbol table entry and thus
-a fixed location in memory. We need to fix this to deal with the situation
-where the left-hand side of the '.' token is an offset that has already
-been calculated.
+但原先做这件事的代码，
+默认 `'.'`
+左边的对象一定是一个拥有符号表条目、
+也就拥有固定内存地址的变量。
+我们现在得把它修成：
+即便 `'.'`
+左边已经是一个“之前算好的偏移量”，
+也能正常工作。
 
-Fortunately, this was quite easy to do. We don't have to change the
-parser code, but let's look at what is  already there. In `member_access()`
-in `expr.c`:
+好在这个修复并不难。
+解析器本身不需要改，
+不过先来看看当前已有的逻辑。
+在 `expr.c`
+的 `member_access()` 中：
 
 ```c
   // Check that the left AST tree is a struct or union.
@@ -36,14 +57,26 @@ in `expr.c`:
       left->op = A_ADDR;
 ```
 
-We mark the left-hand AST tree as A_ADDR (instead of A_IDENT) to say
-that we need the base address of it, not the value at this address.
+这里我们会把左侧 AST 树
+标成 `A_ADDR`
+（而不是 `A_IDENT`），
+表示：
+我们需要的是它的基地址，
+而不是那个地址处的值。
 
-Now we need to fix the code generation. When we get an A_ADDR AST node,
-we either have a variable whose address we need (e.g. `thing` in
-`thing.member1`), or our child tree has the pre-calculated offset
-(e.g. the offset of `member1` in `member1.age_in_years). So in `genAST()`
-in `gen.c`, we do:
+接下来就得修代码生成部分。
+当我们遇到一个 `A_ADDR`
+AST 节点时，
+要么它代表的是“某个变量的地址”
+（比如 `thing.member1`
+里的 `thing`），
+要么它的子树本身就已经计算出了偏移量
+（比如 `member1.age_in_years`
+里那个 `member1`
+的偏移）。
+所以现在在 `gen.c`
+的 `genAST()` 里，
+我们这样处理：
 
 ```c
   case A_ADDR:
@@ -56,10 +89,14 @@ in `gen.c`, we do:
       return (leftreg);
 ```
 
-That should be all, but we have one more fix. The code to work out the
-alignment of types doesn't deal with structs inside structs, only
-scalar types inside structs. So, I've modified `cgalign()` in `cg.c`
-as follows:
+本来这样应该就够了，
+但还有最后一个地方也得补。
+负责计算类型对齐的代码，
+此前只考虑了“struct 里嵌套标量类型”的情况，
+还不会处理“struct 里再嵌 struct”。
+于是我把 `cg.c`
+里的 `cgalign()`
+改成了下面这样：
 
 ```c
 // Given a scalar type, an existing memory offset
@@ -87,21 +124,35 @@ int cgalign(int type, int offset, int direction) {
 }
 ```
 
-Everything but P_CHAR gets aligned on a 4-byte alignment,
-including structs and unions.
+现在除了 `P_CHAR`
+以外，
+所有类型都会按 4 字节对齐，
+包括 struct 和 union。
 
-## Known but Unfixed Bugs
+## 已知但尚未修复的 bug
 
-Now that this Github repository is up and has gained some attention,
-several people have reported bugs and misfeatures.
-The list of open and closed issues is here:
-![https://github.com/DoctorWkt/acwj/issues](https://github.com/DoctorWkt/acwj/issues). If you spot any bugs or misfeatures, feel free to report them.
-However, I can't promise I'll get time to fix them all!
+现在这个 GitHub 仓库已经公开了，
+也逐渐开始有人关注，
+所以陆续有人提交了一些 bug
+和行为缺陷的反馈。
+相关 open/closed issue 列表在这里：
+![https://github.com/DoctorWkt/acwj/issues](https://github.com/DoctorWkt/acwj/issues)。
+如果你发现了 bug
+或者某些行为不符合预期，
+也欢迎继续提。
+不过我没法保证
+自己一定有时间把它们全修掉！
 
-## What's Next
+## 下一步
 
-I've been reading up on register allocation, and I think I'll add
-a linear scan register allocation mechanism to the compiler. To do
-this, though, I need to add an intermediate representation stage.
-This will be the goal for the next few stages, but so far I haven't
-done anything concrete. [Next step](../63_QBE/Readme.md)
+我最近在看一些关于寄存器分配的资料，
+目前觉得，
+下一步大概会给编译器加上
+线性扫描（linear scan）式的寄存器分配机制。
+但想做到这一步，
+我首先需要在编译流程里
+加入一个中间表示（intermediate representation）阶段。
+接下来的几个阶段，
+大体都会朝这个目标推进；
+只是到目前为止，
+我还没真正写出什么实质代码。 [下一步](../63_QBE/Readme.md)

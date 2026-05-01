@@ -1,151 +1,224 @@
-# Part 61: What's Next?
+# 第 61 部分：接下来做什么（What's Next）
 
-We've achieved the goal of writing a self-compiling
-compiler. Now that this goal has been reached, what
-else could we do with the codebase?
+我们已经达成了
+“写出一个能够自编译的编译器”
+这个目标。
+既然这个目标已经实现了，
+那接下来我们还能拿这套代码做些什么？
 
-From the start, I'm going to say that there are already
-a number of working, production-ready C compilers:
-[GCC](https://gcc.gnu.org), [LLVM](https://llvm.org)
-etc. We don't need another production-ready C compiler.
-But the point of writing this compiler was pedagogical:
-to explain the basics of how compilers work, and to
-put this knowledge into practice.
+先把话说明白：
+现在本来就已经有不少
+可用、而且生产可用的 C 编译器，
+比如
+[GCC](https://gcc.gnu.org)、
+[LLVM](https://llvm.org)
+等等。
+我们并不缺另一个生产级的 C 编译器。
+但写这个编译器的意义，
+从一开始就是教学性的：
+用它来解释编译器的基本工作原理，
+并把这些知识真正落到实践里。
 
-So, I see the future work on the compiler to continue
-to explain how compilers work and to put this into
-practice.
+因此，
+我认为这个编译器后续的工作方向，
+也应该继续围绕：
+更好地解释编译器如何工作，
+以及继续把这些原理落实成代码实践。
 
-With this direction set, let's look at the possibilities.
+方向既然已经确定，
+那就来看看有哪些可能性。
 
-## Code Cleanup
+## 代码清理
 
-I wrote the compiler fairly quickly, with only a little
-thought about the overarching design of the code. I think
-the design is reasonable, but the whole codebase needs
-a clean up. There's a fair bit of
+我写这个编译器的速度一直比较快，
+对整体代码设计的长远思考其实不算太多。
+我觉得整体设计还算说得过去，
+但整个代码库确实需要一次系统性的清理。
+里面有不少
 [DRY code](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself)
-in places which could be refactored. Some of the code is
-ugly and could be improved. Also, some of the comments no
-longer reflect the code. This wouldn't change the compiler's
-functionality, but it would make it easier to understand.
+相关的问题，
+也就是很多可以继续抽取重构的重复逻辑。
+有些代码写得不太好看，
+还可以进一步改善。
+另外也有些注释
+已经和当前代码实现对不上了。
+这些工作不会改变编译器的功能，
+但会让它更容易被理解。
 
-## Fix the Bugs
+## 修 bug
 
-The compiler, as it stands, purports to implement a
-specific subset of the C language. But I'm sure there
-are plenty of bugs in this implementation. We could
-spend some time identifying these bugs and fixing them,
-while keeping the compiler's functionality constant.
+就目前这个版本而言，
+编译器宣称自己实现的是
+C 语言的某个特定子集。
+但我敢肯定，
+这个实现里一定还藏着不少 bug。
+我们完全可以花一段时间，
+把这些 bug 找出来并修掉，
+同时尽量保持编译器整体功能范围不变。
 
-## Write Out the Final BNF Grammar
+## 把最终版 BNF 语法写完整
 
-This suggestions goes along with the previous one.
-We should document the exact subset of the C language
-that the compiler supports, as a BNF grammar. I did
-write snippets of BNF grammar thoughout the journey,
-but near the end I stopped doing it. It would be 
-good to write out the full, final, BNF grammar.
+这个建议和上一个是配套的。
+我们应该把编译器当前到底支持
+C 语言的哪一个精确子集，
+正式整理成一份 BNF 语法文档。
+在这趟旅程的前面不少章节里，
+我其实写过很多零散的 BNF 片段；
+只是到了后期，
+我不再持续这么做了。
+所以现在很值得把最终完整版本的 BNF
+全部整理出来。
 
-## Support Variadic Functions
+## 支持可变参数函数
 
-The compiler still doesn't check that the number of
-arguments to a function matches the number of
-function parameters. We need this because the compiler
-also doesn't support variadic functions like `printf()`
-and friends.
+编译器到现在为止，
+仍然不会检查“函数实参数量”
+是否和“函数形参数量”一致。
+而我们之所以需要做这件事，
+是因为编译器目前也还不支持
+像 `printf()`
+这类可变参数函数（variadic functions）。
 
-So, we need to add in the `...` token, somehow mark
-a function has having either "exactly N" or "N or more"
-parameters, and then write the code to use this information.
+所以，
+我们需要想办法引入 `...` 这个 token，
+同时给函数打上标记：
+它到底是“恰好 N 个参数”，
+还是“至少 N 个参数”。
+然后再基于这些信息
+把对应的检查逻辑写出来。
 
-## Add `short`s
+## 加入 `short`
 
-It shouldn't be too hard to add a 16-bit signed `short` type. But Nils
-mentions, in his SubC book, that adding `unsigned` integer to a C
-compiler is tricky.
+增加一个 16 位有符号的 `short`
+类型，
+理论上应该不算太难。
+不过 Nils
+在他的 SubC 书里提到过：
+给 C 编译器加入 `unsigned`
+整数类型，
+其实是件很棘手的事。
 
-## Rewrite the Register Allocation and Spilling
+## 重写寄存器分配与寄存器溢出
 
-Right now, the mechanism for register allocation and
-register spilling is really awful, especially the
-spilling of registers before and after a function call.
-The assembly code is terribly inefficient. I'd like
-to see this rewritten using some of the theory on
-register allocation, e.g
-[graph colouring](https://en.wikipedia.org/wiki/Register_allocation#Graph-coloring_allocation).
-Even better, if this was written up like the past
-journey steps, it would help newcomers (like me)
-understand it better.
+现在这套寄存器分配和寄存器溢出机制
+真的挺糟糕，
+尤其是函数调用前后
+寄存器溢出那一段。
+生成出来的汇编效率非常差。
+我很希望未来能按一些更正式的理论
+把这一部分重写掉，
+例如基于
+[图着色（graph colouring）](https://en.wikipedia.org/wiki/Register_allocation#Graph-coloring_allocation)
+的寄存器分配方式。
+如果这部分还能像前面的旅程章节一样，
+边做边写成说明，
+那对后来者
+（包括像我这样的人）
+会很有帮助。
 
-## AST Optimisations
+## AST 优化
 
-I did mention the idea of optimising the generated code
-by restructing the AST trees. An example of this is
-[strength reduction](https://en.wikipedia.org/wiki/Strength_reduction).
-The [SubC](http://www.t3x.org/subc/) compiler does this,
-and it would be easy to add to our compiler, along with
-a writeup. There might be other AST tree optimisations
-that could be done.
+我以前提到过一种思路：
+通过重构 AST 树本身，
+来优化最终生成的代码。
+一个例子就是
+[强度削减（strength reduction）](https://en.wikipedia.org/wiki/Strength_reduction)。
+[SubC](http://www.t3x.org/subc/)
+编译器就会这么做，
+而且要把类似优化加到我们的编译器里，
+并不算特别困难，
+也很适合再配一篇讲解。
+除此之外，
+应该还存在别的 AST 层优化值得尝试。
 
-## Code Generation Optimisation
+## 代码生成优化
 
-Another place to do output optimisation is in the code
-generator. A good example is
-[peephole optimisation](https://en.wikipedia.org/wiki/Peephole_optimization).
-To do this, however, the way the assembly code is generated
-would have to change. Instead of `fprintf()`ing the output,
-it should be stored in a data structure to make it easier for
-the peephole optimiser to traverse the assembly code. That's
-as far as I've thought, but it would be interesting to do.
+另一个适合做输出优化的地方，
+就是代码生成器本身。
+一个典型例子是
+[窥孔优化（peephole optimisation）](https://en.wikipedia.org/wiki/Peephole_optimization)。
+但如果要做这个，
+生成汇编代码的方式就得改掉。
+现在我们是直接用 `fprintf()`
+把汇编吐出来；
+而如果想做窥孔优化，
+更合理的做法应该是先把输出存进某种数据结构里，
+这样优化器才能更方便地遍历整段汇编代码。
+我目前也只想到这一步，
+但这个方向很有意思。
 
-## Add Debugging Output
+## 增加调试输出
 
-I started to do this in step 59. We should be able to output
-`gdb` directives into the assembly output to allow `gdb` to
-see the original C source lines, and step through a program
-line by line. Right now, the compiler is outputting this
-information but the `gdb` directives are not placed correctly
-in the assembly output. There's another step in here with a
-writeup on how to do this properly.
+我在第 59 步里已经开始尝试做这件事了。
+理论上我们应该可以在汇编输出里插入 `gdb`
+需要的指令信息，
+让 `gdb`
+知道原始 C 源码对应的行号，
+从而按源码逐行调试程序。
+现在编译器其实已经在输出这类信息了，
+但这些 `gdb`
+指令放置的位置还不正确，
+所以还没真正工作起来。
+这里显然也还值得再单独写一章，
+详细讲怎么把这件事正确做完。
 
-## Complete the ARM Backend, plus Others
+## 补完 ARM 后端，以及更多后端
 
-I did start the ARM back-end, and at the time I promised that
-I would keep it in sync with the x86-64 back-end. Well, I
-broke that promise as I got too interested in extending the
-compiler's functionality. Now that the compiler's functionality
-is relatively stable, I should go back and complete the ARM
-back-end. Even better would be a third back-end to prove that
-the compiler is fairly portable.
+我以前确实开过 ARM 后端的头，
+而且当时还承诺过：
+会让它一直跟 x86-64 后端保持同步。
+结果后来我对扩展编译器功能本身越来越上头，
+那个承诺也就被我打破了。
+现在编译器的功能已经相对稳定，
+我确实应该回头把 ARM 后端补完。
+再进一步的话，
+如果还能再做出第三个后端，
+那就更能说明这个编译器本身是有可移植性的。
 
-## Extending the Recognised Grammar
+## 扩展当前能识别的语法
 
-I've left this suggestion to near the end as it doesn't
-continue the theme of explaining how compilers work. There is
-always scope to add more elements of the C language to the
-compiler. We don't need to do this to make the compiler
-self-compiling, but it would make the compiler more useful
-as a general-purpose compiler.
+我把这个建议放到比较靠后的位置，
+因为它和“解释编译器原理”这个主题
+关系没那么直接。
+当然，
+编译器永远都可以继续支持
+更多 C 语言特性。
+这些扩展并不是让编译器实现自编译所必需的，
+但它们会让这个编译器
+作为通用编译器时更有实际用处。
 
-## Work Out How to Call `ld` Directly
+## 搞清楚怎样直接调用 `ld`
 
-A long time ago, when I was playing around with BSD and Linux
-systems, I used to be able to link excecutables by hand with
-the `ld` command. I've been unable to work out how to do this
-on current Linux systems, and I'm relying on `cc` to do the
-linking for me. I'd love to learn how to link by hand with `ld`
-on Linux.
+很久以前，
+我折腾 BSD 和 Linux 系统的时候，
+曾经能手工用 `ld`
+命令直接把可执行文件链接出来。
+但在现在的 Linux 系统上，
+我一直没完全弄明白这件事该怎么做，
+所以目前我还得依赖 `cc`
+来替我完成链接。
+我很想重新搞清楚：
+在 Linux 上到底怎样才能直接手工调用 `ld`
+完成链接。
 
-## Port the Compiler to non-Linux Systems
+## 把编译器移植到非 Linux 系统
 
-Following on from the last point, it would be good to "port"
-the compiler to non-Linux systems like some of the BSD platforms.
+顺着上一个话题继续，
+如果能把这个编译器移植到
+一些非 Linux 系统上，
+例如若干 BSD 平台，
+那也会很不错。
 
-## Conclusion
+## 总结
 
-These are all the possible things that I can of (at the moment)
-to continue the work on our compiler. I will get on to some of
-them, but at this point I'd be very happy to have other people
-help out with the project, and/or fork the compiler's code and
-do their own thing with it! [Next step](../62_Cleanup/Readme.md)
+以上这些，
+就是我目前能想到的，
+继续推进这个编译器项目的各种方向。
+我自己之后肯定还会继续做其中一部分；
+但说实话，
+到了这个阶段，
+如果有更多人愿意参与、
+一起改进这个项目，
+或者直接 fork
+这套编译器代码去做自己的版本，
+我都会非常欢迎！ [下一步](../62_Cleanup/Readme.md)
