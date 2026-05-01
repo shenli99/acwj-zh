@@ -1,30 +1,33 @@
-# Part 21: More Operators
+# 第 21 部分：更多运算符
 
-In this part of our compiler writing journey, I decided to pick some
-low-hanging fruit and implement many of the expression operators which
-are still missing. These include:
+在编译器编写之旅的这一部分里，
+我决定先摘一些“低垂的果子”，
+把很多还没支持的表达式运算符补上。
+其中包括：
 
-+ `++` and `--`, both pre-increment/decrement and post--increment/decrement
-+ unary `-`, `~`, and `!`
-+ binary `^`, `&`, `|`, `<<` and `>>`
++ `++` 和 `--`，既包括前置自增 / 自减，也包括后置自增 / 自减
++ 一元 `-`、`~` 和 `!`
++ 二元 `^`、`&`、`|`、`<<` 与 `>>`
 
-I also implemented the implicit "not zero operator" which treats an
-expression rvalue as a boolean value for selection and loop statements, e.g.
+我还实现了一个隐式的“非零运算符”，
+它会把表达式的 rvalue 当作布尔值（boolean value）来使用，
+这样选择语句和循环语句里就可以写出例如：
 
 ```c
   for (str= "Hello"; *str; str++) ...
 ```
 
-instead of writing
+而不用写成：
 
 ```c
   for (str= "Hello"; *str != 0; str++) ...
 ```
 
-## Tokens and Scanning
+## token 与扫描
 
-As always, we start off with any new tokens in the language. There are
-a few this time:
+和往常一样，
+先从语言里新增的 token 开始。
+这次有好几个：
 
 | Scanned Input | Token |
 |:-------------:|-------|
@@ -39,25 +42,32 @@ a few this time:
 |   `~`         | T_INVERT |
 |   `!`         | T_LOGNOT |
 
-Some of these are composed of new single characters, so the scanning of
-these is easy. For others, we need to distinguish between single characters
-and pairs of different characters. An example is `<`, `<<` and `<=`. We
-have already seen how to do the scanning for these in `scan.c`, so I won't
-give the new code here. Browse through `scan.c` to see the additions.
+其中有些由全新的单字符组成，
+这类扫描逻辑很好写。
+而另一些则需要区分“单字符”和“由两个字符组成的 token”。
+比如 `<`、`<<` 和 `<=`。
+我们之前已经在 `scan.c` 里处理过类似情况，
+所以这里就不再把新代码全部展开了。
+直接去翻 `scan.c`，
+就能看到新增部分。
 
-## Adding the Binary Operators to the Parsing
+## 把二元运算符加入解析流程
 
-Now we need to parse these operators. Some of these operators are binary
-operators: `||`, `&&`, `|`, `^`, `<<` and `>>`. We already have a precedence
-framework in place for binary operators. We can simply add the new operators
-to the framework.
+接下来要解析这些运算符。
+其中一部分是二元运算符：
+`||`、`&&`、`|`、`^`、`<<` 和 `>>`。
+我们已经有一套二元运算符优先级框架，
+所以只要把这些新运算符接进去就行。
 
-When I did this, I realised that I had several of the existing operators in
-with the wrong precedence according to
-[this table of C operator precedence](https://en.cppreference.com/w/c/language/operator_precedence). We also need to align the AST node operations with the
-set of binary operator tokens. Thus, here are the definitions of the
-tokens, the AST node types and the operator precedence table from `defs.h`
-and `expr.c`:
+在做这一步时，
+我发现自己之前好几个已有运算符的优先级其实都放错了，
+和
+[这张 C 运算符优先级表](https://en.cppreference.com/w/c/language/operator_precedence)
+对不上。
+同时，
+AST 节点操作类型也需要和这些二元运算符 token 一一对齐。
+因此，下面是 `defs.h` 和 `expr.c` 中
+token 定义、AST 节点类型以及运算符优先级表的样子：
 
 ```c
 // Token types
@@ -101,21 +111,24 @@ static int OpPrec[] = {
 };
 ```
 
-## New Unary Operators.
+## 新的一元运算符
 
-Now we get to the parsing of the new unary operators, `++`, `--`, `~` and 
-`!`. All of these are prefix operators (i.e. before an expression), but
-the `++` and `--` operators can also be postfix operators. Thus, we'll
-need to parse three prefix and two postfix operators, and perform five
-different semantic actions for them.
+现在轮到解析新的单目 / 一元运算符：
+`++`、`--`、`~` 和 `!`。
+这些里有些是前缀运算符（prefix operator），
+也就是出现在表达式前面；
+而 `++` 和 `--` 同时也可以是后缀运算符（postfix operator）。
+因此，
+我们需要解析三个前缀运算符和两个后缀运算符，
+并为它们执行五种不同的语义动作。
 
-To prepare for this addition of these new operators, I went back and
-consulted the
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html).
-As these new operators can't be worked into the existing binary operator
-framework, we'll need to implement them with new functions in our 
-recursive descent parser. Here are the *relevant* sections from the above
-grammar, rewritten to use our token names:
+为了给这些新运算符做准备，
+我重新查了前面提到的
+[C 的 BNF 语法](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)。
+由于这些新运算符没法简单塞进现有的二元运算符优先级框架，
+所以我们需要在递归下降解析器里新增一些函数。
+下面是其中和当前需求*相关*的部分，
+我把它改写成了使用我们自己 token 名称的形式：
 
 ```
 primary_expression
@@ -158,68 +171,87 @@ multiplicative_expression
         etc.
 ```
 
-We implement the binary operators in `binexpr()` in `expr.c`, but this calls
-`prefix()`, just as `multiplicative_expression` in the above BNF grammar
-refers to `prefix_expression`. We already have a function called `primary()`.
-Now we need a function, `postfix()` to deal with the postfix expressions.
+我们目前在 `expr.c` 里通过 `binexpr()` 处理二元运算符，
+而它内部会调用 `prefix()`；
+这正对应上面 BNF 中
+`multiplicative_expression` 引用 `prefix_expression` 的关系。
+我们已经有 `primary()` 了，
+现在还需要一个 `postfix()` 来处理后缀表达式。
 
-## Prefix Operators
+## 前缀运算符
 
-We already parse a couple of tokens in `prefix()`: T_AMPER and T_STAR. We
-can add in the new tokens here (T_MINUS, T_INVERT, T_LOGNOT, T_INC and
-T_DEC) by adding more case statements to the `switch (Token.token)` statement.
+我们本来就在 `prefix()` 里解析了两个 token：
+`T_AMPER` 和 `T_STAR`。
+现在只需要在 `switch (Token.token)` 里
+再多加几个分支，
+把 `T_MINUS`、`T_INVERT`、`T_LOGNOT`、`T_INC` 和 `T_DEC`
+也接进去。
 
-I won't include the code here because all the cases have a similar structure:
+这里我就不把完整代码全贴出来了，
+因为这些 case 的整体结构都差不多：
 
-  + Skip past the token with `scan(&Token)`
-  + Parse the next expression with `prefix()`
-  + Do some semantic checking
-  + Extend the AST tree that was returned by `prefix()`
+  + 用 `scan(&Token)` 跳过当前 token
+  + 用 `prefix()` 继续解析后面的表达式
+  + 做一些语义检查（semantic checking）
+  + 扩展刚刚返回的 AST 树
 
-However, the differences between some of the cases are important to cover.
-For the parsing of the `&` (T_AMPER) token, the expression needs to
-be treated as an lvalue: if we do `&x`, we want the address of the variable
-`x`, not the address of `x`'s value. Other cases do need to have the
-AST tree returned by `prefix()` forced to be an rvalue:
+不过，
+其中几个 case 的差异还是值得单独说明。
+对于 `&`（`T_AMPER`），
+表达式必须被视为 lvalue：
+如果我们写 `&x`，
+想要的是变量 `x` 的地址，
+而不是 `x` 当前值的地址。
+而其他一些情况则必须强制把 `prefix()` 返回的 AST 树视为 rvalue，
+包括：
 
-  + `-` (T_MINUS)
-  + `~` (T_INVERT)
-  + `!` (T_LOGNOT)
+  + `-`（`T_MINUS`）
+  + `~`（`T_INVERT`）
+  + `!`（`T_LOGNOT`）
 
-And, for the pre-increment and pre-decrement operators, we actually *require*
-the expression to be an lvalue: we can do `++x` but not `++3`. For now,
-I've written the code to require a simple identifier, but I know later on
-we will want to parse and deal with `++b[2]` and `++ *ptr`.
+另外，对于前置自增和前置自减，
+我们实际上要求这个表达式必须是 lvalue：
+可以写 `++x`，
+但不能写 `++3`。
+目前我先把代码写成“只接受简单标识符”的形式，
+但我很清楚，
+后面我们还得支持 `++b[2]` 以及 `++ *ptr` 这样的写法。
 
-Also, from a design point of view, we have the option of altering the
-AST tree returned by `prefix()` (with no new AST nodes), or adding one
-or more new AST nodes to the tree:
+从设计角度看，
+这里有两种做法：
+要么直接修改 `prefix()` 返回的 AST 树，
+不引入新节点；
+要么在树上再包一层或多层新的 AST 节点。
 
-  + T_AMPER modifies the existing AST tree so the root is A_ADDR
-  + T_STAR adds an A_DEREF node to the root of the tree
-  + T_STAR adds an A_NEGATE node to the root of the tree after
-    possibly widening the tree to be an `int` value. Why? Because the
-    tree might be of type `char` which is unsigned, and you can't negate
-    an unsigned value.
-  + T_INVERT adds an A_INVERT node to the root of the tree
-  + T_LOGNOT adds an A_LOGNOT node to the root of the tree
-  + T_INC adds an A_PREINC node to the root of the tree
-  + T_DEC adds an A_PREDEC node to the root of the tree
+  + `T_AMPER` 会修改已有 AST 树，使其根节点变成 `A_ADDR`
+  + `T_STAR` 会在树根外面再包一层 `A_DEREF`
+  + `T_MINUS` 会在树根外面再包一层 `A_NEGATE`，
+    并且必要时先把表达式扩宽成 `int`。为什么？
+    因为这棵树有可能是 `char` 类型，而 `char` 在这里是无符号的，
+    无符号值没法直接取负。
+  + `T_INVERT` 会在树根外面包一层 `A_INVERT`
+  + `T_LOGNOT` 会在树根外面包一层 `A_LOGNOT`
+  + `T_INC` 会在树根外面包一层 `A_PREINC`
+  + `T_DEC` 会在树根外面包一层 `A_PREDEC`
 
-## Parsing the Postfix Operators
+## 解析后缀运算符
 
-If you look at the BNF grammar I hyperlinked to above, to parse a postfix
-expression we need to refer to the parsing of a primary expression. To
-implement this, we need to get the tokens of the primary expression first
-and then then determine if there are any trailing postfix tokens.
+如果你回头看我上面引用的 BNF，
+会发现“后缀表达式”的解析需要依赖“主表达式（primary expression）”。
+因此实现时，
+我们得先把主表达式的 token 读出来，
+再判断后面有没有跟着后缀 token。
 
-Even though the grammar shows "postfix" calling "primary", I've
-implemented it by scanning the tokens in `primary()` and then deciding to call
-`postfix()` to parse the postfix tokens.
+虽然语法写法看起来像是“postfix 调用 primary”，
+但我的实现方式是：
+先在 `primary()` 里把基础 token 识别出来，
+然后再决定是否调用 `postfix()` 去解析后缀部分。
 
-> This turned out to be a mistake -- Warren, writing from the future.
+> 事实证明这是个错误决定。  
+> 这是来自未来的 Warren 给现在的注释。
 
-The BNF grammar above seems to allow expressions like `x++ ++` because it has:
+上面的 BNF 看上去甚至允许出现 `x++ ++` 这样的表达式，
+因为它写的是：
 
 ```
 postfix_expression:
@@ -227,12 +259,13 @@ postfix_expression:
         ;
 ```
 
-but I'm not going to allow more than one postfix operator after the
-expression. So let's look at the new code:
+不过我这里并不打算允许在一个表达式后面连着跟多个后缀运算符。
+那就来看看新代码。
 
-`primary()` deals with recognising primary expressions: integer literals,
-string literals and identifiers. It also recognises parenthesised expressions.
-Only the identifiers can be followed by postfix operators.
+`primary()` 负责识别主表达式：
+整数字面量、字符串字面量和标识符，
+也包括带括号的表达式。
+而只有标识符后面才可能继续跟着后缀运算符。
 
 ```c
 static struct ASTnode *primary(void) {
@@ -247,8 +280,9 @@ static struct ASTnode *primary(void) {
 }
 ```
 
-I've moved the parsing of function calls and array references out to
-`postfix()`, and this is where we parse the postfix `++` and `--` operators:
+我把“函数调用”和“数组下标访问”的解析逻辑
+都从 `primary()` 挪到了 `postfix()` 里，
+并且也是在这里加入了后缀 `++` 与 `--` 的支持：
 
 ```c
 // Parse a postfix expression and return
@@ -296,32 +330,38 @@ static struct ASTnode *postfix(void) {
 }
 ```
 
-Another design decision. For `++`, we could have made an A_IDENT AST
-node with an A_POSTINC parent, but given that we have the identifier's name
-in `Text`, we can build a single AST node that contains both the node type
-and the reference to the identifier's slot number in the symbol table.
+这里还有一个设计决策。
+对于 `++`，
+我们原本也可以把它做成一个 `A_IDENT` AST 节点，
+外面再包一个 `A_POSTINC` 父节点。
+但既然当前标识符名字已经在 `Text` 里，
+那我们完全可以直接构造一个 AST 节点，
+同时把“节点类型”和“符号表槽位编号”都塞进去。
 
-## Converting an Integer Expression to a Boolean Value
+## 把整数表达式转换成布尔值
 
-Before we leave the parsing side of things and move to the code generation
-side of things, I should mention the change I made to allow integer
-expressions to be treated as boolean expressions, e.g.
+在离开“解析”这一侧，
+转向“代码生成”之前，
+我还得提一下我为了让“整数表达式也能当布尔表达式使用”而做的改动。
+比如：
 
 ```
   x= a + b;
   if (x) { printf("x is not zero\n"); }
 ```
 
-The BNF grammar doesn't provide any explicit syntax rules to restrict
-expressions to be boolean, e.g:
+BNF 语法里并没有显式规定
+“这里必须是布尔表达式”之类的额外限制，
+例如：
 
 ```
 selection_statement
         : IF '(' expression ')' statement
 ```
 
-Therefore, we'll have to do this semantically. In `stmt.c` where I parse
-IF, WHILE and FOR loops, I've added this code:
+因此这件事只能通过语义层来处理。
+在 `stmt.c` 里解析 `IF`、`WHILE` 和 `FOR` 循环时，
+我加了下面这段代码：
 
 ```c
   // Parse the following expression
@@ -331,20 +371,27 @@ IF, WHILE and FOR loops, I've added this code:
     condAST = mkastunary(A_TOBOOL, condAST->type, condAST, 0);
 ```
 
-I've introduced a new AST node type, A_TOBOOL. This will generate code
-to take any integer value. If this value is zero, the result is zero,
-otherwise the result will be one.
+这里我新增了一种 AST 节点类型：`A_TOBOOL`。
+它会生成代码，
+把任意整数值转换成布尔值：
+如果原值是 0，
+结果就是 0；
+否则结果就是 1。
 
-## Generating the Code for the New Operators
+## 为新运算符生成代码
 
-Now we turn our attention to generating the code for the new operators.
-Actually, the new AST node types: A_LOGOR, A_LOGAND, A_OR, A_XOR, A_AND,
-A_LSHIFT, A_RSHIFT, A_PREINC, A_PREDEC, A_POSTINC, A_POSTDEC,
-A_NEGATE, A_INVERT, A_LOGNOT and A_TOBOOL.
+现在把注意力转到这些新运算符的代码生成上。
+更准确地说，
+是这些新的 AST 节点类型：
+`A_LOGOR`、`A_LOGAND`、`A_OR`、`A_XOR`、`A_AND`、
+`A_LSHIFT`、`A_RSHIFT`、`A_PREINC`、`A_PREDEC`、
+`A_POSTINC`、`A_POSTDEC`、`A_NEGATE`、`A_INVERT`、
+`A_LOGNOT` 和 `A_TOBOOL`。
 
-All of these are simple calls out to matching functions in the
-platform-specific code generator in `cg.c`. So the new code in `genAST()`
-in `gen.c` is simply:
+这些节点在 `gen.c` 的 `genAST()` 里，
+基本都只是简单地转发到平台相关代码生成器 `cg.c`
+中的同名 / 对应函数。
+因此新增代码几乎就是：
 
 ```c
     case A_AND:
@@ -384,11 +431,12 @@ in `gen.c` is simply:
       return (cgboolean(leftreg, parentASTop, label));
 ```
 
-## x86-64 Specific Code Generation Functions
+## x86-64 专用代码生成函数
 
-That means we can now look at the back-end functions to generate real x86-64
-assembly code. For most of the bitwise operations, the x86-64 platform
-has assembly instructions to do them:
+这意味着，
+我们现在可以去看后端如何真正生成 x86-64 汇编代码了。
+对大多数按位运算（bitwise operation）来说，
+x86-64 平台本身就有对应的汇编指令：
 
 ```c
 int cgand(int r1, int r2) {
@@ -417,8 +465,9 @@ int cginvert(int r) {
 }
 ```
 
-With the shift operations, as far as I can tell the shift amount has to
-be loaded into the `%cl` register first.
+至于移位运算，
+据我所知，
+移位量必须先装进 `%cl` 寄存器。
 
 ```c
 int cgshl(int r1, int r2) {
@@ -434,8 +483,9 @@ int cgshr(int r1, int r2) {
 }
 ```
 
-The operations that deal with boolean expressions (where the result
-must be either 0 or 1) are a bit more complicated.
+而那些和布尔表达式有关的操作
+（即结果必须是 0 或 1 的情况），
+则稍微复杂一些。
 
 ```c
 // Logically negate a register's value
@@ -447,12 +497,13 @@ int cglognot(int r) {
 }
 ```
 
-The `test` instruction essentially AND's the register with itself to set
-the zero and negative flags. Then we set the register to 1 if it is
-equal to zero (`sete`). Then we move this 8-bit result into the 64-bit
-register proper.
+`test` 指令本质上会把寄存器和它自己做一次 AND，
+以设置零标志和负号标志。
+然后如果结果等于 0，
+我们就用 `sete` 把对应寄存器字节设为 1。
+最后再把这个 8 位结果扩展搬运到完整的 64 位寄存器里。
 
-And here is the code to convert an integer into a boolean value:
+下面则是把一个整数转换成布尔值的代码：
 
 ```c
 // Convert an integer value to a boolean value. Jump if
@@ -469,21 +520,28 @@ int cgboolean(int r, int op, int label) {
 }
 ```
 
-Again, we do a `test` to get the zero-ness or non-zeroeness of the register.
-If we are doing this for an selection or loop statement, then `je` to jump
-if the result was false. Otherwise, use `setnz` to set the register to 1
-if it was non-zero originally.
+这里同样先做一次 `test`，
+得到该寄存器值是零还是非零的信息。
+如果这是为 `if` 或 `while` 语句生成的代码，
+那就用 `je` 在结果为假时跳转。
+否则就用 `setnz`，
+在原值非零时把寄存器设为 1。
 
-## Increment and Decrement Operations
+## 自增与自减操作
 
-I've left the `++` and `--` operations to last. The subtlety here is that
-we have to both get the value out of the memory location into a register,
-and separately increment or decrement it. And we have to choose to do this
-before or after we load the register.
+我把 `++` 和 `--` 留到最后来讲。
+这里的微妙之处在于：
+我们既要把内存位置里的值取到寄存器中，
+又要单独对原内存位置执行加一或减一。
+而且还得根据是前置还是后置，
+决定“先改再取”还是“先取再改”。
 
-As we already have a `cgloadglob()` function to load a global variable's
-value, let's modify it to also alter the variable as required. The code
-is ugly but it does work.
+既然我们已经有 `cgloadglob()`，
+专门用来加载全局变量的值，
+那就干脆把它改造一下，
+让它在需要时顺便修改变量。
+这段代码不算好看，
+但确实能工作：
 
 ```c
 // Load a value from a variable into a register.
@@ -539,16 +597,19 @@ int cgloadglob(int id, int op) {
 }
 ```
 
-I'm pretty sure that I'll have to rewrite this later on to perform
-`x= b[5]++`, but this will do for now. After all, baby steps is what
-I promised for each step of our journey.
+我几乎可以肯定，
+以后为了处理像 `x= b[5]++` 这样的情况，
+这里还得重写。
+不过现在先这样已经够用了。
+毕竟我本来也说过，
+这趟旅程的每一步都会先走婴儿步。
 
-## Testing the New Functionality
+## 测试新功能
 
-I won't go through the new test input files in detail for this step.
-They are `input22.c`, `input23.c` and `input24.c` in the `tests` directory.
-You can browse them and confirm that the compiler can correctly compile
-them:
+这一部分我就不把新的测试输入文件逐个展开讲了。
+它们分别是 `tests` 目录下的 `input22.c`、`input23.c` 和 `input24.c`。
+你可以自己去看，
+并确认编译器现在已经能正确编译它们：
 
 ```
 $ make test
@@ -558,35 +619,40 @@ input23.c: OK
 input24.c: OK
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-In terms of extending the functionality of our compiler, this part of
-the journey added a lot of functionality, but I hope the amount of
-additional conceptual complexity was minimal.
+如果从“扩展编译器功能”的角度看，
+这一部分确实一下子加进来了不少能力；
+但我希望它额外引入的概念复杂度并不算太高。
 
-We added a bunch of binary operators and this was done by updating
-the scanner and changing the operator precedence table.
+我们加入了一批新的二元运算符，
+实现方式主要是更新扫描器，
+并调整运算符优先级表。
 
-For the unary operators, we added them manually to the parser in the
-`prefix()` function.
+对于一元运算符，
+我们是在解析器的 `prefix()` 里手工加入的。
 
-For the new postfix operators, we separated the old function call and
-array index functionality out into a new `postfix()` function, and
-used this to add in the postfix operators. We did have to worry a bit
-about lvalues and rvalues here. We also had some design decisions about
-what AST nodes to add, or if we should just redecorate some existing
-AST nodes.
+而对于新的后缀运算符，
+我们把原先函数调用和数组下标访问的逻辑
+拆进了新的 `postfix()` 函数，
+再借此把后缀运算符也一并加进去。
+这里确实需要稍微留心 lvalue 和 rvalue，
+同时也得做一些设计取舍：
+到底该新增哪些 AST 节点，
+还是只给已有节点重新“挂属性”。
 
-The code generation ended up being relatively simple because the x86-64
-architecture has instructions to implement the operations we needed.
-However, we did have to set up some specific registers for some of the
-operations, or perform instruction combinations to do what we wanted.
+代码生成这边最终相对简单，
+因为 x86-64 架构本身已经提供了我们所需的大部分指令。
+不过，
+有些操作仍然需要先准备特定寄存器，
+或者用几条指令组合起来达成目标。
 
-The tricky operations were the increment and decrement operations. I've
-put code in to get these to work for ordinary variables but we will have to
-revisit this later.
+真正比较棘手的是自增和自减操作。
+我现在已经让它们在普通变量上工作起来了，
+但后面还得再回来处理更复杂的情况。
 
-In the next part of our compiler writing journey, I'd like to
-tackle local variables. Once we can get these to work, we can extend
-them to also include function parameters and arguments. This will
-take two or more steps. [Next step](../22_Design_Locals/Readme.md)
+在编译器编写之旅的下一部分中，
+我想先解决局部变量（local variable）。
+一旦这块跑通，
+我们就可以顺势扩展到函数形参（parameter）和实参（argument）。
+这大概要分成两步或更多步来完成。 [下一步](../22_Design_Locals/Readme.md)
