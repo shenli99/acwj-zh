@@ -1,22 +1,23 @@
-# Part 5: Statements
+# 第 5 部分：语句
 
-It's time to add some "proper" statements to the grammar of our language.
-I want to be able to write lines of code like this:
+是时候给我们这门语言的语法加入一些“真正像样”的语句了。
+我希望自己能够写出这样的代码：
 
 ```
    print 2 + 3 * 5;
    print 18 - 6/3 + 4*2;
 ```
 
-Of course, as we are ignoring whitespace, there's no necessity that
-all the tokens for one statement are on the same line. Each statement
-starts with the keyword `print` and is terminated with a semicolon. So
-these are going to become new tokens in our language.
+当然，由于我们会忽略空白字符，
+所以并不要求一个语句的所有 token 必须在同一行上。
+每个语句都以关键字 `print` 开头，
+并以一个分号结尾。
+因此，这两样东西都会成为语言中的新 token。
 
-## BNF Description of the Grammar
+## 语法的 BNF 描述
 
-We've already seen the BNF notation  for expressions. Now let's define
-the BNF syntax for the above types of statements:
+我们已经见过表达式的 BNF 写法了。
+现在来定义上述这类语句的 BNF 语法：
 
 ```
 statements: statement
@@ -27,24 +28,26 @@ statement: 'print' expression ';'
      ;
 ```
 
-An input file consists of several statements. They are either one statement,
-or a statement followed by more statements. Each statement starts with the
-keyword `print`, then one expression, then a semicolon.
+一个输入文件由若干条语句构成。
+它要么只包含一条语句，
+要么是一条语句后面跟着更多语句。
+每条语句都以关键字 `print` 开头，
+后面跟一个表达式，再跟一个分号。
 
-## Changes to the Lexical Scanner
+## 对词法扫描器的修改
 
-Before we can get to the code that parses the above syntax, we need to
-add a few more bits and pieces to the existing code. Let's start with
-the lexical scanner.
+在我们开始编写解析上述语法的代码之前，
+需要先给已有代码补上一些新部件。
+先从词法扫描器开始。
 
-Adding a token for semicolons will be easy. Now, the `print` keyword.
-Later on, we'll have many keywords in the language, plus identifiers
-for our variables, so we'll need to add some code which helps us to
-deal with them.
+给分号增加一个 token 很容易。
+至于 `print` 关键字，后面我们还会引入更多关键字，
+以及变量名对应的标识符（identifier），
+因此需要加入一些辅助代码来统一处理它们。
 
-In `scan.c`, I've added this code which I've borrowed from the SubC
-compiler. It reads in alphanumeric characters into a 
-buffer until it hits a non-alphanumeric character.
+在 `scan.c` 中，我加入了下面这段从 SubC 编译器借来的代码。
+它会把连续的字母数字字符读入一个缓冲区，
+直到遇到非字母数字字符为止。
 
 ```c
 // Scan an identifier from the input file and
@@ -72,12 +75,14 @@ static int scanident(int c, char *buf, int lim) {
 }
 ```
 
-We also need a function to recognise keywords in the language. One way
-would be to have a list of keywords, and to walk the list and `strcmp()`
-each one against the buffer from `scanident()`. The code from SubC has
-an optimisation: match against the first letter before doing the `strcmp()`.
-This speeds up the comparison against dozens of keywords. Right now we
-don't need this optimisation but I've put it in for later:
+我们还需要一个函数来识别语言中的关键字。
+一种做法是维护一个关键字列表，
+然后把 `scanident()` 读出来的缓冲区内容逐一拿去 `strcmp()`。
+SubC 里的做法多了一个小优化：
+先根据首字母做一次筛选，再进行 `strcmp()`。
+如果关键字很多，这能更快一些。
+现在我们还用不上这个优化，
+但我先把它加进来，方便以后继续扩展：
 
 ```c
 // Given a word from the input, return the matching
@@ -95,8 +100,8 @@ static int keyword(char *s) {
 }
 ```
 
-Now, at the bottom of the switch statement in `scan()`, we add this code
-to recognise semicolons and keywords:
+接着，在 `scan()` 的 `switch` 语句底部，
+我们加入下面这段代码来识别分号和关键字：
 
 ```c
     case ';':
@@ -128,19 +133,19 @@ to recognise semicolons and keywords:
       exit(1);
 ```
 
-I've also added a global `Text` buffer to store the keywords and
-identifiers:
+我还增加了一个全局 `Text` 缓冲区，
+用来保存关键字和标识符：
 
 ```c
 #define TEXTLEN         512             // Length of symbols in input
 extern_ char Text[TEXTLEN + 1];         // Last identifier scanned
 ```
 
-## Changes to the Expression Parser
+## 对表达式解析器的修改
 
-Up to now our input files have contained just a single expression; therefore,
-in our Pratt parser code in `binexpr()` (in `expr.c`), we had this code to
-exit the parser:
+到目前为止，我们的输入文件里只包含单个表达式；
+因此在 `expr.c` 中的 Pratt parser `binexpr()` 里，
+曾经有下面这样一段用来结束解析的代码：
 
 ```c
   // If no tokens left, return just the left node
@@ -149,9 +154,9 @@ exit the parser:
     return (left);
 ```
 
-With our new grammar, each expression is terminated by a semicolon. Thus,
-we need to change the code in the expression parser to spot the `T_SEMI`
-tokens and exit the expression parsing:
+现在，根据新语法，每个表达式都以一个分号结尾。
+因此我们要修改表达式解析器，
+让它在看到 `T_SEMI` token 时结束表达式解析：
 
 ```c
 // Return an AST tree whose root is a binary operator.
@@ -181,14 +186,14 @@ struct ASTnode *binexpr(int ptp) {
 }
 ```
 
-## Changes to the Code Generator
+## 对代码生成器的修改
 
-I want to keep the generic code generator in `gen.c`
-separate from the CPU-specific code in `cg.c`. That also means
-that the rest of the compiler should only ever call the functions in
-`gen.c`, and only `gen.c` should call the code in `cg.c`.
+我希望继续让 `gen.c` 中的通用代码生成器，
+与 `cg.c` 中的 CPU 专用代码保持分离。
+这也意味着编译器的其他部分都只能调用 `gen.c` 中的函数，
+而只能由 `gen.c` 去调用 `cg.c` 中的代码。
 
-To this end, I've defined some new "front-end" functions in `gen.c`:
+为此，我在 `gen.c` 中定义了一些新的“前端”函数：
 
 ```c
 void genpreamble()        { cgpreamble(); }
@@ -197,13 +202,13 @@ void genfreeregs()        { freeall_registers(); }
 void genprintint(int reg) { cgprintint(reg); }
 ```
 
-## Adding the Parser for Statements
+## 增加语句解析器
 
-We have a new file `stmt.c`. This will hold the parsing code for all
-the main statements in our language. Right now, we need to parse the
-BNF grammar for statements which I gave up above. This is done with
-this single function. I've converted the recursive definition into
-a loop:
+现在新增了一个文件 `stmt.c`。
+这里将存放我们语言中各类主要语句的解析代码。
+目前，我们只需要处理上面给出的那套 statements 语法。
+这项工作由下面这个单独的函数完成。
+我把原本递归的定义改写成了一个循环：
 
 ```c
 // Parse one or more statements
@@ -231,18 +236,20 @@ void statements(void) {
 }
 ```
 
-In each loop, the code finds a T_PRINT token. It then calls `binexpr()` to
-parse the expression. Finally, it finds the T_SEMI token. If a T_EOF token
-follows, we break out of the loop.
+在循环的每一轮中，代码都会先找到一个 `T_PRINT` token。
+接着调用 `binexpr()` 解析后面的表达式。
+最后，它再去匹配 `T_SEMI` token。
+如果后面紧跟着的是 `T_EOF`，
+我们就跳出循环。
 
-After each expression tree, the code in `gen.c` is called to convert
-the tree into assembly code and to call the assembly `printint()` function
-to print out the final value.
+每得到一棵表达式树，`gen.c` 里的代码就会被调用，
+把这棵树转换成汇编代码，
+并通过汇编里的 `printint()` 函数打印最终结果。
 
-## Some Helper Functions
+## 一些辅助函数
 
-There are a couple of new helper functions in the above code, which I've put
-into a new file, `misc.c`:
+上面代码里还出现了几个新的辅助函数，
+我把它们放进了新文件 `misc.c`：
 
 ```c
 // Ensure that the current token is t,
@@ -263,13 +270,15 @@ void semi(void) {
 }
 ```
 
-These form part of the syntax checking in the parser. Later on, I'll add
-more short functions to call `match()` to make our syntax checking easier.
+这些函数也是解析器语法检查的一部分。
+后面我还会继续添加更多这种简短的小函数来调用 `match()`，
+让语法检查写起来更顺手。
 
-## Changes to `main()`
+## 对 `main()` 的修改
 
-`main()` used to call `binexpr()` directly to parse the single expression
-in the old input files. Now it does this:
+过去 `main()` 会直接调用 `binexpr()`，
+去解析旧输入文件中的那个单独表达式。
+现在它改成了这样：
 
 ```c
   scan(&Token);                 // Get the first token from the input
@@ -280,10 +289,11 @@ in the old input files. Now it does this:
   exit(0);
 ```
 
-## Trying It Out
+## 试一试
 
-That's about it for the new and changed code. Let's give the new code
-a whirl. Here is the new input file, `input01`:
+新的和修改过的代码基本就是这些了。
+下面来跑一下新版本。
+这是新的输入文件 `input01`：
 
 ```
 print 12 * 3;
@@ -294,8 +304,9 @@ print
   9 - 5/2 + 3*5;
 ```
 
-Yes I've decided to check that we have have tokens spread out across multiple
-lines. To compile and run the input file, do a `make test`:
+对，我就是想顺便验证一下：
+即使 token 分布在多行里，也应该能正常工作。
+要编译并运行这个输入文件，只需要执行 `make test`：
 
 ```make
 $ make test
@@ -308,17 +319,18 @@ cc -o out out.s
 25
 ```
 
-And it works!
+它确实正常工作了。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We've added our first "real" statement grammar to our language. I've defined
-it in BNF notation, but it was easier to implement it with a loop and not
-recursively. Don't worry, we'll go back to doing recursive parsing soon.
+我们已经为这门语言加入了第一套“真正的”语句语法。
+虽然我先用 BNF 表示了它，
+但在实现时，用循环来写比递归更简单。
+不用担心，我们很快又会回到递归解析上来。
 
-Along the way we had to modify the scanner, add support for keywords and
-identifiers, and to more cleanly separate the generic code generator and
-the CPU-specific generator.
+在这个过程中，我们修改了扫描器，
+增加了对关键字和标识符的支持，
+也让通用代码生成器和 CPU 专用生成器之间的边界更清晰。
 
-In the next part of our compiler writing journey, we will add variables
-to the language. This will require a significant amount of work. [Next step](../06_Variables/Readme.md)
+在编译器编写之旅的下一部分中，我们将为语言加入变量。
+这会是一项工作量明显更大的扩展。 [下一步](../06_Variables/Readme.md)

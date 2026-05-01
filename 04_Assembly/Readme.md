@@ -1,13 +1,12 @@
-# Part 4: An Actual Compiler
+# 第 4 部分：一个真正的编译器
 
-It's about time that I met my promise of actually writing a compiler.
-So in this part of the journey we are going to replace the interpreter
-in our program with code that generates x86-64 assembly code.
+差不多该兑现我“真的要写一个编译器”的承诺了。
+所以在这部分旅程中，我们将把程序里的解释器替换成
+会生成 x86-64 汇编代码的实现。
 
-## Revising the Interpreter
+## 重新审视解释器
 
-Before we do, it will be worthwhile to revisit the interpreter code
-in `interp.c`:
+在开始之前，值得先回顾一下 `interp.c` 里的解释器代码：
 
 ```c
 int interpretAST(struct ASTnode *n) {
@@ -30,26 +29,23 @@ int interpretAST(struct ASTnode *n) {
 }
 ```
 
-The `interpretAST()` function walks the given AST tree depth-first.
-It evaluates any left sub-tree, then the right sub-tree. Finally, it
-uses the `op` value at the base of the current tree to operate on
-these children.
+`interpretAST()` 会以深度优先（depth-first）的方式遍历给定的 AST。
+它先求值左子树，再求值右子树。
+最后使用当前节点根部的 `op` 值，对这两个子树的结果执行操作。
 
-If the `op` value is one of the four maths operators, then this maths
-operation is performed. If the `op` value indicates that the node
-is simply an integer literal, the literal value is return.
+如果 `op` 值是四个数学运算符之一，那就执行相应的数学运算。
+如果 `op` 值表示当前节点只是一个整数字面量，
+那就直接返回这个字面量的值。
 
-The function returns the final value for this tree. And, as it is
-recursive, it will calculate the final value for a whole tree
-one sub-sub-tree at a time.
+这个函数会返回当前树的最终结果。
+而由于它本身是递归的，因此它会一层层地把整棵树的值算出来。
 
-## Changing to Assembly Code Generation
+## 改成生成汇编代码
 
-We are going to write an assembly code generator which is generic.
-This is, in turn, going to call out to a set of CPU-specific code
-generation functions.
+我们将要编写一个通用的汇编代码生成器。
+而这个生成器再进一步调用一组与具体 CPU 相关的代码生成函数。
 
-Here is the generic assembly code generator in `gen.c`:
+下面就是 `gen.c` 里的通用汇编代码生成器：
 
 ```c
 // Given an AST, generate
@@ -75,33 +71,32 @@ static int genAST(struct ASTnode *n) {
 }
 ```
 
-Looks familar, huh?! We are doing the same depth-first tree traversal.
-This time:
+看起来很眼熟，对吧？我们做的仍然是同样的深度优先树遍历。
+只不过这一次：
 
-  + A_INTLIT: load a register with the literal value
-  + Other operators: perform a maths function on the two registers
-    that hold the left-child's and right-child's value
+  + `A_INTLIT`：把字面量值装载进一个寄存器
+  + 其他运算符：对保存了左孩子值和右孩子值的两个寄存器执行数学运算
 
-Instead of passing values, the code in `genAST()` passes around
-register identifiers. For example `cgload()` loads a value into a register and
-returns the identity of the register with the loaded value.
+`genAST()` 不再在函数之间传递数值，
+而是传递寄存器标识符。
+例如 `cgload()` 会把一个值装入某个寄存器，
+并返回这个寄存器的编号。
 
-`genAST()` itself returns the identity of the register that holds the final
-value of the tree at this point. That's why the code at the top is
-getting register identities:
+`genAST()` 自己返回的，也是“当前这棵树最终结果所在寄存器”的编号。
+这就是为什么前面的代码要先取到左右寄存器标识：
 
 ```c
   if (n->left) leftreg = genAST(n->left);
   if (n->right) rightreg = genAST(n->right);
 ```
 
-## Calling `genAST()`
+## 调用 `genAST()`
 
-`genAST()` is only going to calculate the value of the expression given to
-it. We need to print out this final calculation. We're also going to need
-to wrap the assembly code we generate with some leading code (the
-*preamble*) and some trailing code (the *postamble*). This is done with
-the other function in `gen.c`:
+`genAST()` 只负责算出传给它的表达式值。
+但我们还需要把最终计算结果打印出来。
+同时，我们也需要在生成的汇编代码前后包上一些固定内容：
+前面是 *preamble*（前导代码），后面是 *postamble*（收尾代码）。
+这些都由 `gen.c` 里的另一个函数完成：
 
 ```c
 void generatecode(struct ASTnode *n) {
@@ -114,45 +109,46 @@ void generatecode(struct ASTnode *n) {
 }
 ```
 
-## The x86-64 Code Generator
+## x86-64 代码生成器
 
-That's the generic code generator out of the road. Now we need to look
-at the generation of some real assembly code. For now, I'm targetting
-the x86-64 CPU as this is still one of the most common Linux platforms.
-So, open up `cg.c` and let's get browsing.
+通用代码生成器部分到这里就差不多了。
+现在该看看真正的汇编代码是怎么生成的。
+目前我把目标平台定为 x86-64，
+因为它仍然是 Linux 上最常见的平台之一。
+所以，打开 `cg.c`，开始看看里面的内容。
 
-### Allocating Registers
+### 分配寄存器
 
-Any CPU has a limited number of registers. We will have to allocate
-a register to hold the integer literal values, plus any calculation
-that we perform on them. However, once we've used a value, we can
-often discard the value and hence free up the register holding it.
-Then we can re-use that register for another value.
+任何 CPU 的寄存器数量都是有限的。
+我们需要分配寄存器来保存整数字面量，
+以及对它们执行运算时产生的中间结果。
+不过，一旦某个值已经用完，往往就可以丢弃它，
+进而释放保存它的寄存器。
+随后这个寄存器就能被重新利用。
 
-There are three functions that deal with register allocation:
+下面这三个函数负责寄存器分配：
 
- + `freeall_registers()`: Set all registers as available
- + `alloc_register()`: Allocate a free register
- + `free_register()`: Free an allocated register
+ + `freeall_registers()`：把所有寄存器都标记为可用
+ + `alloc_register()`：分配一个空闲寄存器
+ + `free_register()`：释放一个已分配的寄存器
 
-I'm not going to go through the code as it's straight forward but with
-some error checking. Right now, if I run out of registers then the
-program will crash. Later on, I'll deal with the situation when we have
-run out of free registers.
+这些代码本身比较直接，只带了一些错误检查，所以我就不逐行讲了。
+目前如果寄存器用光，程序会直接崩溃。
+后面我会再处理“没有空闲寄存器可用”时该怎么办。
 
-The code works on generic registers: r0, r1, r2 and r3. There is a table
-of strings with the actual register names:
+代码操作的是抽象寄存器：r0、r1、r2 和 r3。
+真正的寄存器名字保存在下面这个字符串表里：
 
 ```c
 static char *reglist[4]= { "%r8", "%r9", "%r10", "%r11" };
 ```
 
-This makes these functions fairly independent of the CPU architecture.
+这让这些函数相对独立于具体 CPU 架构。
 
-### Loading a Register
+### 装载一个寄存器
 
-This is done in `cgload()`: a register is allocated, then a `movq`
-instruction loads a literal value into the allocated register.
+这由 `cgload()` 完成：先分配一个寄存器，
+然后用一条 `movq` 指令把字面量值加载进去。
 
 ```c
 // Load an integer literal value into a register.
@@ -168,11 +164,11 @@ int cgload(int value) {
 }
 ```
 
-### Adding Two Registers
+### 两个寄存器相加
 
-`cgadd()` takes two register numbers and generates the code to add
-them together. The result is saved in one of the two registers,
-and the other one is then freed for future use:
+`cgadd()` 接收两个寄存器编号，并生成把它们相加的代码。
+结果保存在其中一个寄存器里，
+另一个寄存器则被释放以备后用：
 
 ```c
 // Add two registers together and return
@@ -184,14 +180,14 @@ int cgadd(int r1, int r2) {
 }
 ```
 
-Note that addition is *commutative*, so I could have added `r2` to `r1`
-instead of `r1` to `r2`. The identity of the register with the final
-value is returned.
+注意，加法是*可交换（commutative）*的，
+所以我本来也可以把 `r2` 加到 `r1` 上，而不是把 `r1` 加到 `r2` 上。
+函数返回的是保存最终结果的寄存器编号。
 
-### Multiplying Two Registers
+### 两个寄存器相乘
 
-This is very similar to addition, and again the operation is
-*commutative*, so any register can be returned:
+这和加法非常相似，而且乘法同样是*可交换*的，
+因此任意一个寄存器都可以作为结果寄存器返回：
 
 ```c
 // Multiply two registers together and return
@@ -203,11 +199,11 @@ int cgmul(int r1, int r2) {
 }
 ```
 
-### Subtracting Two Registers
+### 两个寄存器相减
 
-Subtraction is *not* commutative: we have to get the order correct.
-The second register is subtracted from the first, so we return the
-first and free the second:
+减法就*不可交换*了：顺序必须正确。
+第二个寄存器要从第一个寄存器中减掉，
+所以我们返回第一个寄存器，并释放第二个：
 
 ```c
 // Subtract the second register from the first and
@@ -219,14 +215,16 @@ int cgsub(int r1, int r2) {
 }
 ```
 
-### Dividing Two Registers
+### 两个寄存器相除
 
-Division is also not commutative, so the previous notes apply. On
-the x86-64, it's even more complicated. We need to load `%rax`
-with the *dividend* from `r1`. This needs to be extended to eight
-bytes with `cqo`. Then, `idivq` will divide `%rax` with the divisor
-in `r2`, leaving the *quotient* in `%rax`, so we need to copy it
-out to either `r1` or `r2`. Then we can free the other register.
+除法同样不可交换，因此上面的说明依旧成立。
+而在 x86-64 上，它甚至还要更复杂一些。
+我们需要先把来自 `r1` 的*被除数（dividend）*加载到 `%rax` 中。
+随后用 `cqo` 把它扩展成八字节。
+然后 `idivq` 会用 `%rax` 去除以 `r2` 中的除数，
+并把*商（quotient）*留在 `%rax` 里，
+所以我们还得把结果再拷贝回 `r1` 或 `r2` 中的一个。
+最后就可以释放另一个寄存器了。
 
 ```c
 // Divide the first register by the second and
@@ -241,19 +239,19 @@ int cgdiv(int r1, int r2) {
 }
 ```
 
-### Printing A Register
+### 打印一个寄存器
 
-There isn't an x86-64 instruction to print a register out as a decimal
-number. To solve this problem, the assembly preamble contains a function
-called `printint()` that takes a register argument and calls `printf()`
-to print this out in decimal.
+x86-64 并没有一条能把寄存器内容直接按十进制打印出来的指令。
+为了解决这个问题，汇编前导代码里包含了一个叫做 `printint()` 的函数，
+它接收一个寄存器参数，然后调用 `printf()` 以十进制方式打印它。
 
-I'm not going to give the code in `cgpreamble()`, but it also contains
-the beginning code for `main()`, so that we can assemble our output file
-to get a complete program. The code for `cgpostamble()`, also not given
-here, simply calls `exit(0)` to end the program.
+我这里就不贴 `cgpreamble()` 的代码了，
+不过它也包含了 `main()` 的开头部分，
+这样我们输出的汇编文件就能被组装成一个完整程序。
+而 `cgpostamble()` 的代码我也不贴了，
+它只是简单地调用 `exit(0)` 来结束程序。
 
-Here, however, is `cgprintint()`:
+不过，这里可以看一下 `cgprintint()`：
 
 ```c
 void cgprintint(int r) {
@@ -263,17 +261,18 @@ void cgprintint(int r) {
 }
 ```
 
-Linux x86-64 expects the first argument to a function to be in the `%rdi`
-register, so we move our register into `%rdi` before we `call printint`.
+Linux x86-64 要求函数的第一个参数放在 `%rdi` 寄存器里，
+因此我们在 `call printint` 之前，
+先把自己的寄存器内容移动到 `%rdi` 中。
 
-## Doing Our First Compile
+## 完成第一次真正的编译
 
-That's about it for the x86-64 code generator. There is some extra code
-in `main()` to open out `out.s` as our output file. I've also left the
-interpreter in the program so we can confirm that our assembly calculates
-the same answer for the input expression as the interpreter.
+x86-64 代码生成器大致就是这些了。
+`main()` 里还有一点额外代码，会把 `out.s` 打开成输出文件。
+我也暂时把解释器保留在程序里，
+这样就能确认生成的汇编代码是否和解释器算出了同样的结果。
 
-Let's make the compiler and run it on `input01`:
+下面我们构建编译器，并让它处理 `input01`：
 
 ```make
 $ make
@@ -287,18 +286,19 @@ cc -o out out.s
 15
 ```
 
-Yes! The first 15 is the interpreter's output. The second 15 is the
-assembly's output.
+对了！第一个 `15` 是解释器的输出，
+第二个 `15` 是汇编程序运行后的输出。
 
-## Examining the Assembly Output
+## 看看生成出来的汇编代码
 
-So, exactly what was the assembly output? Well, here is the input file:
+那么，实际生成出来的汇编代码到底长什么样？
+先看输入文件：
 
 ```
 2 + 3 * 5 - 8 / 3
 ```
 
-and here is `out.s` for this input with comments:
+下面是针对这个输入生成出来的 `out.s`，并附带注释：
 
 ```
         .text                           # Preamble code
@@ -346,29 +346,28 @@ main:
         ret
 ```
 
-Excellent! We now have a legitimate compiler: a program that takes
-an input in one language and generates a translation of that input
-in another language.
+很好！我们现在已经拥有了一个真正意义上的编译器：
+它接受一种语言作为输入，再生成这段输入在另一种语言中的翻译结果。
 
-We still have to then assemble the output down to machine code and link
-it with the support libraries, but this is something that we can
-perform manually for now. Later on, we will write some code to do
-this automatically.
+当然，我们还得进一步把这些汇编输出汇编成机器码，
+并和支持库链接起来，
+但目前这部分我们暂时可以手工完成。
+后面我们会再写代码把这一步自动化。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-Changing from the interpreter to a generic code generator was trivial, but then
-we had to write some code to generate real assembly output. To do this,
-we had to think about how to allocate registers: for now, we have a naive
-solution. We also had to deal with some x86-64 oddities like the `idivq`
-instruction.
+从解释器切换到通用代码生成器本身很简单，
+但接下来我们确实花了不少心思去生成真实的汇编输出。
+为此，我们必须考虑如何分配寄存器；
+而目前的方案还只是一个比较天真的版本。
+同时，我们还得处理 x86-64 上一些比较别扭的地方，
+比如 `idivq` 指令。
 
-Something I haven't touched on yet is: why bother with generating the AST for
-an expression? Surely, we could have called `cgadd()` when we hit a '+'
-token in our Pratt parser, ditto for the other operators. I'm going to
-leave you to think about this, but I will come back to it in a step or
-two.
+还有一个问题我暂时还没展开：为什么非得先为表达式构建 AST？
+我们完全可以在 Pratt parser 中遇到 `+` token 时直接调用 `cgadd()`，
+其他运算符也照此办理，不是吗？
+这个问题我先留给你自己想一想，
+不过在接下来的一两步里我还会回到它。
 
-In the next part of our compiler writing journey, we will add some
-statements to our language, so that it starts to resemble a proper
-computer language. [Next step](../05_Statements/Readme.md)
+在编译器编写之旅的下一部分中，我们要给语言加入一些语句（statement），
+让它开始更像一门真正的编程语言。 [下一步](../05_Statements/Readme.md)
