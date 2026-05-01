@@ -1,23 +1,22 @@
-# Part 48: A Subset of `static`
+# 第 48 部分：`static` 的一个子集
 
-In a real C compiler, there are three types of `static` things:
+在一个真正的 C 编译器里，
+`static` 相关的东西大致有三类：
 
- + static functions, whose declaration is visible only in the source
-   file where the function appears;
- + static global variables, whose declaration is visible only in the source
-   file where the variable appears; and
- + static local variables, which act like global variables except that
-   each static local variables is only visible within the function
-   where the variable appears.
+ + `static` 函数，它们的声明只在当前函数所在的源文件内可见；
+ + `static` 全局变量，它们的声明也只在当前变量所在的源文件内可见；以及
+ + `static` 局部变量，它们的行为像全局变量一样会跨函数调用保留值，
+   但每个 `static` 局部变量又只在定义它的那个函数内可见。
 
-The first two should be simple to implement:
+前两类按理说都不难实现：
 
-  + add them as a global variable when they are declared, and
-  + remove them from the global symbol table when that source code
-    file is closed
+  + 声明时把它们当作全局对象加入符号表；
+  + 等当前源文件处理结束后，再把它们从全局符号表里移除。
 
-The third one is much harder. Here's an example. Let's keep two private counters
-with functions to increment them:
+第三类就麻烦得多。
+来看一个例子。
+假设我们想保留两个私有计数器，
+并各自提供一个函数去递增它们：
 
 ```c
 int inc_counter1(void) {
@@ -32,34 +31,52 @@ int inc_counter2(void) {
 
 ```
 
-Both functions see their own `counter` variable, and the value of both
-counters persist across function calls. The variable persistence makes
-them "global" (i.e. live outside of function scope) but they are only
-visible to one function, which makes them sort of "local".
+这两个函数各自都只能看到自己的 `counter` 变量，
+而且这两个计数器的值
+又都会跨函数调用持续存在。
+这种“值会持久化”的特性让它们像全局变量，
+但“只对一个函数可见”这一点
+又让它们看起来有点像局部变量。
 
-I'll drop a reference to
-[closures](https://en.wikipedia.org/wiki/Closure_(computer_programming))
-here, but the theory side is a bit out of scope, mainly because I'm
-*not* going to implement this third type of static things.
+我在这里先顺手丢一个
+[闭包（closure）](https://en.wikipedia.org/wiki/Closure_(computer_programming))
+的链接，
+不过理论部分有点超出当前范围，
+更何况我
+*并不打算*
+实现这第三类 `static`。
 
-Why not? Mainly because it will be hard to implement something that
-has both global and local characteristics at the same time. But, also,
-I don't have any static local variables in our compiler (now that I've
-rewritten some code), and so there's no need for the functionality.
+为什么？
+主要是因为这种东西
+同时兼具全局和局部特征，
+实现起来会比较别扭。
+另外，
+在现在的编译器源码里，
+我已经没有任何 `static` 局部变量了
+（我前面重写过一些代码），
+所以也没有现实需求逼着我非做不可。
 
-Instead, we can concentrate on static global functions and static global
-variables.
+因此，
+这一部分里我们只专注于：
+`static` 全局函数，
+以及 `static` 全局变量。
 
-## A New Keyword and Token
+## 新关键字与 token
 
-We have a new keyword `static` and a new token T_STATIC. As always,
-read through `scan.c` for the changes.
+我们新增了一个关键字 `static`，
+以及一个新 token：`T_STATIC`。
+具体扫描器里的改动，
+照例请直接去看 `scan.c`。
 
-## Parsing `static`
+## 解析 `static`
 
-The `static` keyword gets parsed in the same place as `extern`. We also
-want to reject any attempt to use the `static` keyword in a local context. So
-in `decl.c`, we modify `parse_type()`:
+`static` 关键字的解析位置
+和 `extern` 是同一个地方。
+同时，
+我们还希望拒绝任何在局部上下文中使用 `static`
+的尝试。
+所以在 `decl.c` 中，
+我把 `parse_type()` 改成了这样：
 
 ```c
 // Parse the current token and return a primitive type enum value,
@@ -93,27 +110,38 @@ int parse_type(struct symtable **ctype, int *class) {
 }
 ```
 
-If we see either `static` or `extern`, we firstly check if this is
-legal given the current declaration class. Then we update the `class`
-variable. If we see neither tokens, we leave the loop.
+如果看到 `static` 或 `extern`，
+首先就根据当前声明类别
+检查这种组合是否合法；
+然后再去更新 `class` 变量。
+如果两个都没看到，
+那就退出这个循环。
 
-Now that we have a type which is marked as being for a static declaration,
-how is this added to the global symbol table? We need to change, in
-nearly every place in the compiler, any use of the C_GLOBAL class to
-also include C_STATIC. This occurs numerous times across multiple files,
-but you should look out for code like this:
+现在的问题是：
+一旦某个类型已经被标记成 `static` 声明，
+那它后续要怎样被加入全局符号表？
+
+答案是：
+我们需要在编译器几乎所有用到 `C_GLOBAL`
+的地方，
+都把 `C_STATIC` 一并考虑进去。
+这会牵涉多个文件中的不少位置，
+但你可以重点留意类似这样的代码：
 
 ```c
     if (class == C_GLOBAL || class == C_STATIC) ...
 ```
 
-in `cg.c`, `decl.c`, `expr.c` and `gen.c`.
+它们会出现在 `cg.c`、`decl.c`、`expr.c`
+和 `gen.c` 中。
 
-## Getting Rid of `static` Declarations
+## 清理 `static` 声明
 
-Once we have finished parsing static declarations, we need to remove them
-from the global symbol table. In `do_compile()` in `main.c`, just after
-we close the input file, we now do this:
+当我们完成对这些 `static` 声明的解析之后，
+接下来还得把它们从全局符号表中移除。
+在 `main.c` 的 `do_compile()` 中，
+现在会在关闭输入文件之后
+多做一步：
 
 ```c
   genpreamble();                // Output the preamble
@@ -123,10 +151,13 @@ we close the input file, we now do this:
   freestaticsyms();             // Free any static symbols in the file
 ```
 
-So let's now look at `freestaticsyms()` in `sym.c`. We walk the global symbol
-table. For any static node, we relink the list to remove it. I'm not a whiz
-at linked list code, so I wrote out all the possibly alternatives on a sheet
-of paper to come up with the following code:
+那我们再来看 `sym.c` 中的 `freestaticsyms()`。
+它会遍历全局符号表，
+对每一个 `static` 节点，
+重新连一下链表把它摘掉。
+我并不是链表代码高手，
+所以我先在纸上把所有可能情况都列了一遍，
+最后写出了下面这段：
 
 ```c
 // Remove all static symbols from the global symbol table
@@ -158,14 +189,17 @@ void freestaticsyms(void) {
 }
 ```
 
-The overall effect is to treat static declarations as global declarations,
-but to remove them from the symbol table at the end of processing an
-input file.
+整体效果就是：
+把 `static` 声明先当作普通全局声明来处理，
+但在当前输入文件处理结束时，
+再把它们从符号表中清掉。
 
-## Testing the Changes
+## 测试这些改动
 
-There are three programs to test the changes, `tests/input116.c` through to
-`tests/input118.c`. Let's look at the first one:
+这一部分有三个测试程序，
+分别是 `tests/input116.c`
+到 `tests/input118.c`。
+先看第一个：
 
 ```c
 #include <stdio.h>
@@ -181,7 +215,7 @@ int main(void) {
 }
 ```
 
-Let's look at the assembly output for some of this:
+再看看它对应的一小段汇编输出：
 
 ```
         ...
@@ -196,16 +230,23 @@ fred:
         ...
 ```
 
-Normally, `counter` and `fred` would have been decorated with a `.globl`
-marking. Now that they are static, they get labels but we tell the assembler
-not to make these globally visible.
+正常情况下，
+`counter` 和 `fred`
+前面本来都应该会带一个 `.globl` 标记。
+而现在它们是 `static`，
+所以依然会生成标签，
+但我们不会再要求汇编器把它们作为全局可见符号导出。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I was worried about `static`, but once I decided to not implement the really
-hard third alternative, it wasn't too bad. What caused me some grief was
-going through the code, finding all C_GLOBAL uses and ensuring that I added
-appropriate C_STATIC code as well.
+我原本对 `static` 挺发怵的，
+但在决定“不实现最难的那第三类 `static`”
+之后，
+事情其实没有想象中那么糟。
+真正让我头疼的是：
+得在整套代码里到处翻找 `C_GLOBAL` 的使用点，
+并确保合适的位置都补上 `C_STATIC` 的处理。
 
-In the next part of our compiler writing journey, I think it's time that
-I tackle the [ternary operator](https://en.wikipedia.org/wiki/%3F:). [Next step](../49_Ternary/Readme.md)
+在编译器编写之旅的下一部分中，
+我想差不多该去处理
+[三元运算符（ternary operator）](https://en.wikipedia.org/wiki/%3F:) 了。 [下一步](../49_Ternary/Readme.md)
