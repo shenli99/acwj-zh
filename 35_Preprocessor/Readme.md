@@ -1,33 +1,38 @@
-# Part 35: The C Pre-Processor
+# 第 35 部分：C 预处理器
 
-In this part of our compiler writing journey, I've added support for
-an external C pre-processor, and I also added the `extern` keyword to
-our language.
+在编译器编写之旅的这一部分里，
+我加入了对“外部 C 预处理器”的支持，
+同时也把 `extern` 关键字加进了语言里。
 
-We've reached the point where we can write
-[header files](https://www.tutorialspoint.com/cprogramming/c_header_files.htm)
-for our programs, and also put comments in them. I must admit, this feels good.
+我们现在终于走到了这样一个阶段：
+已经可以为程序写
+[头文件（header file）](https://www.tutorialspoint.com/cprogramming/c_header_files.htm)，
+也可以把注释放进这些头文件里了。
+老实说，
+这件事让我很高兴。
 
-## The C Pre-Processor
+## C 预处理器
 
-I don't want to write about the C pre-processor itself, even though is
-a very important part of any C environment. Instead, I'll point you at
-these two articles to read:
+我不打算在这里详细介绍 C 预处理器本身，
+虽然它确实是任何 C 环境里都非常重要的一部分。
+我更愿意直接把这两篇资料留给你：
 
  + [C Preprocessor](https://en.wikipedia.org/wiki/C_preprocessor) at *Wikipedia*
  + [C Preprocessor and Macros](https://www.programiz.com/c-programming/c-preprocessor-macros) at *www.programiz.com*
 
-## Integrating the C Pre-Processor
+## 接入 C 预处理器
 
-In other compilers like [SubC](http://www.t3x.org/subc/), the pre-processor
-is built right into the language. Here I've decided to use the external
-system C pre-processor which is usually
-the [Gnu C pre-processor](https://gcc.gnu.org/onlinedocs/cpp/).
+在像 [SubC](http://www.t3x.org/subc/) 这样的编译器里，
+预处理器是直接内建在语言中的。
+而我这里决定采用系统外部的 C 预处理器，
+通常也就是
+[Gnu C pre-processor](https://gcc.gnu.org/onlinedocs/cpp/)。
 
-Before I show you how I've done this, firstly we need to look at the
-lines that the pre-processor inserts as part of its operation.
+在我展示自己怎么接入它之前，
+我们得先看看：
+预处理器在工作时会插入什么样的行。
 
-Consider this short program (with lines numbered):
+考虑下面这个短程序（我顺手标了行号）：
 
 ```c
 1 #include <stdio.h>
@@ -38,8 +43,8 @@ Consider this short program (with lines numbered):
 6 }
 ```
 
-Here is what we (the compiler) might receive from the pre-processor
-after it processes this file:
+而在预处理之后，
+我们这个编译器接收到的输入可能会长成这样：
 
 ```c
 # 1 "z.c"
@@ -64,23 +69,28 @@ int main() {
 }
 ```
 
-Each pre-processor line starts with a '#', then the number of the following
-line, then the name of the file from where this line comes from. The numbers
-at the end of some of the lines I don't really know what they are. I suspect,
-when one file includes another, they represent the line number of the file
-that did the including.
+每一行预处理器指令都以 `#` 开头，
+后面跟着“下一行的行号”，
+再后面是“这行代码来自哪个文件”的文件名。
+至于某些行尾那些额外的数字，
+我其实也不完全清楚它们具体含义。
+我猜，
+当一个文件 include 另一个文件时，
+这些数字大概和“发起 include 的文件行号”有关。
 
-Here is how I'm going to integrate the pre-processor with our compiler.
-I'm going to use `popen()` to open up a pipe from a process which is
-the pre-processor, and we will tell the pre-processor to work on our
-input file. Then we will modify the lexical scanner to identify the
-pre-processor lines and set the current line number and name of the file
-being processed.
+下面就是我准备把预处理器接进编译器的方法。
+我会用 `popen()` 打开一条来自子进程的管道，
+而这个子进程本身就是预处理器。
+然后让预处理器去处理我们的输入文件。
+接着再修改词法扫描器，
+让它能识别这些预处理器插入的行，
+并据此更新“当前行号”和“当前文件名”。
 
-## Modifications to `main.c`
+## 对 `main.c` 的修改
 
-We have a new global variable, `char *Infilename`, defined in `data.h`.
-In the `do_compile()` function in `main.c` we now do this:
+我们在 `data.h` 中新增了一个全局变量：`char *Infilename`。
+在 `main.c` 的 `do_compile()` 中，
+现在会这样做：
 
 ```c
 // Given an input filename, compile that file
@@ -99,21 +109,24 @@ static char *do_compile(char *filename) {
   Infilename = filename;
 ```
 
-which I think is a straight-forward piece of code, except that I haven't
-explained where `CPPCMD` and `INCDIR` come from.
+这段代码本身很直白，
+唯一还没解释的是：
+`CPPCMD` 和 `INCDIR` 到底从哪来。
 
-`CPPCMD` is defined as the name of the pre-processor command in `defs.h`:
+`CPPCMD` 在 `defs.h` 中被定义成预处理器命令本身：
 
 ```c
 #define CPPCMD "cpp -nostdinc -isystem "
 ```
 
-This tells the Gnu pre-processor to not use the standard include directory
-`/usr/include`: instead, `-isystem` tells the pre-processor to use the
-next thing on the command line which is `INCDIR`.
+它告诉 Gnu 预处理器：
+不要去使用标准头文件目录 `/usr/include`；
+相反，
+`-isystem` 会要求预处理器改用命令行里的下一个参数，
+也就是 `INCDIR`。
 
-`INCDIR` is actually defined in the `Makefile`, as this is a common place
-to put things that can be changed at configuration time:
+而 `INCDIR` 实际上定义在 `Makefile` 中，
+因为这类“可配置路径”本来就很适合放在这里：
 
 ```make
 # Define the location of the include directory
@@ -122,29 +135,35 @@ INCDIR=/tmp/include
 BINDIR=/tmp
 ```
 
-The compiler binary is now compiled with this `Makefile` rule:
+编译器二进制现在会通过这条 `Makefile` 规则编译出来：
 
 ```make
 cwj: $(SRCS) $(HSRCS)
         cc -o cwj -g -Wall -DINCDIR=\"$(INCDIR)\" $(SRCS)
 ```
 
-and this passes the `/tmp/include` value in to the compilation as `INCDIR`.
-Now, when does `/tmp/include` get created, and what gets put there?
+这样就能把 `/tmp/include` 这个值作为 `INCDIR`
+传进编译过程。
+那接下来问题就是：
+`/tmp/include` 什么时候会被创建？
+里面又会放些什么？
 
-## Our First Set of Header Files
+## 我们的第一批头文件
 
-In the `include/` directory in this area, I've made a start on some
-header files that are plain enough for our compiler to digest. We can't
-use the real system header files, as they contain lines like:
+在当前目录下的 `include/` 子目录里，
+我已经开始准备一批
+“足够简单，能被我们自己的编译器消化掉”的头文件。
+我们当然不能直接拿系统自带的真实头文件来用，
+因为里面会出现这种东西：
 
 ```c
 extern int _IO_feof (_IO_FILE *__fp) __attribute__ ((__nothrow__ , __leaf__));
 extern int _IO_ferror (_IO_FILE *__fp) __attribute__ ((__nothrow__ , __leaf__));
 ```
 
-which would cause our compiler to have a fit! There is now a rule in the
-`Makefile` to copy our own header files to the `INCDIR` directory:
+这会让我们的编译器当场崩溃。
+所以 `Makefile` 里现在还有一条规则，
+用来把我们自己写的头文件复制到 `INCDIR` 目录：
 
 ```make
 install: cwj
@@ -154,16 +173,18 @@ install: cwj
         chmod +x $(BINDIR)/cwj
 ```
 
-## Scanning the Pre-Processor Input
+## 扫描预处理器输出
 
-So now we are reading the pre-processor output from working on the input file,
-and not reading from the file directly. We now need to recognise
-pre-processor lines and set the number of the next line and the file's
-name where the line came from.
+所以现在我们的输入，
+已经不再是直接读取原源文件，
+而是读取“预处理器处理后的输出”。
+接下来我们必须识别这些预处理器指令行，
+并根据它们更新“下一行的行号”以及“当前行来自哪个文件”。
 
-I've modified the scanner to do this, as this already deals with incrementing
-the line number. So in `scan.c`, I've made this change to the `scan()`
-function:
+我把这部分逻辑放进了扫描器里，
+因为扫描器本来就负责维护行号。
+所以在 `scan.c` 中，
+我对 `scan()` 做了下面这处修改：
 
 ```c
 // Get the next character from the input file.
@@ -204,34 +225,45 @@ static int next(void) {
 }
 ```
 
-We use a 'while' loop because there can be successive pre-processor lines.
-We are fortunate that we can call `scan()` recursively to scan in both
-the line number as a T_INTLIT and the file's name as a T_STRLIT.
+这里之所以用 `while`，
+是因为预处理器指令行可能连续出现多条。
+比较幸运的是，
+我们可以递归调用 `scan()`，
+先把行号当成 `T_INTLIT` 扫进来，
+再把文件名当成 `T_STRLIT` 扫进来。
 
-The code ignores filenames that are enclosed in '<' ... '>', as these don't
-represent real filenames. We do have to `strdup()` the file's name as it
-is in the global `Text` variable which will get overwritten. However, if
-the name in `Text` is already what's in `Infilename`, we don't need to
-duplicate it.
+这段代码会忽略那些被 `<...>` 包起来的“文件名”，
+因为它们并不代表真实文件。
+我们确实还得对文件名做一次 `strdup()`，
+因为它当前仍然放在全局 `Text` 里，
+后面肯定会被覆盖掉。
+不过如果 `Text` 里的名字和当前 `Infilename` 已经相同，
+那就没必要重复分配。
 
-Once we have the line number and filename, we read up to and one character
-past the end of the line, then go back to our original character scanning code.
+等拿到行号和文件名之后，
+我们就把这一整行剩余内容跳掉，
+并再往后读一个字符，
+然后回到原本的字符扫描流程里。
 
-And that turned out to be all that was needed to integrate the C pre-processor
-with our compiler. I had worried that it would be complex to do this, but it
-wasn't.
+结果证明：
+把 C 预处理器接进编译器这件事，
+比我原先担心的要简单得多。
 
-## Preventing Unwanted Function/Variable Redeclarations
+## 防止不必要的函数 / 变量重复声明
 
-Many header files include other header files, so there is a strong chance
-that one header file might get included multiple times. This would cause
-redeclarations of the same function and/or global variable.
+很多头文件会 include 其他头文件，
+因此非常容易出现：
+同一个头文件被间接 include 多次。
+这就会导致相同的函数和 / 或全局变量被重复声明。
 
-To prevent this, I'm using the normal header mechanism of defining a
-header-specific macro the first time a header file is included. This then
-prevents the contents of the header file being included a second time.
+为了避免这种情况，
+我采用了头文件里最常见的那套机制：
+第一次 include 时定义一个“头文件专属宏”，
+之后如果再次 include 同一文件，
+就能阻止文件内容被重复展开。
 
-As an example, here is what is currently in `include/stdio.h`:
+例如，
+现在 `include/stdio.h` 大概长这样：
 
 ```c
 #ifndef _STDIO_H_
@@ -252,27 +284,34 @@ int fprintf(FILE *stream, char *format);
 #endif  // _STDIO_H_
 ```
 
-Once `_STDIO_H_` is defined, it prevents this file's contents from being
-included a second time.
+只要 `_STDIO_H_` 已经定义过一次，
+这个文件的内容就不会被再次包含进来。
 
-## The `extern` Keyword
+## `extern` 关键字
 
-Now that we have a working pre-processor, I thought it would be time to
-add the `extern` keyword to the language. This would allow us to define
-a global variable but not generate any storage for it: the assumption is
-that the variable has been declared global in another source file.
+既然现在预处理器已经工作起来了，
+我觉得也是时候把 `extern` 关键字加入语言了。
+这样我们就可以声明一个全局变量，
+但不为它生成存储空间；
+默认假设是：
+这个变量已经在另一个源文件里被定义成全局变量了。
 
-The addition of `extern` actually has an impact across several files.
-Not a big impact, but a widespread impact. Let's see this.
+`extern` 的加入实际上会影响到好几个文件。
+影响不大，
+但涉及面还挺广。
+下面逐一来看。
 
-### A New Token and Keyword
+### 一个新 token 与关键字
 
-So, we have a new keyword `extern` and a new token T_EXTERN in `scan.c`.
-As always, the code is there for you to read.
+所以现在我们又新增了一个关键字 `extern`，
+以及对应的 token `T_EXTERN`。
+照例，
+`scan.c` 里的具体代码你可以自己去翻。
 
-### A New Class
+### 一个新的 class
 
-In `defs.h` we have a new storage class:
+在 `defs.h` 中，
+我们现在有了一个新的存储类别：
 
 ```c
 // Storage classes
@@ -284,8 +323,8 @@ enum {
 };
 ```
 
-The reason I put this in is because we already have this code for
-global symbols in `sym.c`:
+我之所以要加这个，
+是因为 `sym.c` 中原本就有这样一段针对全局符号的逻辑：
 
 ```c
 // Create a symbol node to be added to a symbol table list.
@@ -300,14 +339,16 @@ struct symtable *newsym(char *name, int type, struct symtable *ctype,
     genglobsym(node);
 ```
 
-We want `extern` symbols added to the global list, but we don't want to call
-`genglobsym()` to create the storage for them. So, we need to call
-`newsym()` with a class that isn't C_GLOBAL.
+我们确实希望把 `extern` 符号加入全局链表，
+但又不希望调用 `genglobsym()` 为它真正分配空间。
+所以必须传给 `newsym()` 一个“不是 `C_GLOBAL`”的 class。
 
-### Changes to `sym.c`
+### 对 `sym.c` 的修改
 
-To this end, I've modified `addglob()` to take a `class` argument which is
-passed to `newsym()`:
+为了做到这一点，
+我修改了 `addglob()`，
+让它接收一个 `class` 参数，
+并把这个参数继续传给 `newsym()`：
 
 ```c
 // Add a symbol to the global symbol list
@@ -319,18 +360,22 @@ struct symtable *addglob(char *name, int type, struct symtable *ctype,
 }
 ```
 
-This means that, everywhere that we call `addglob()` in the compiler,
-we now must pass in a `class` value. Before, `addglob()` would explicitly
-pass C_GLOBAL to `newsym()`. Now, we must pass the `class` value we want
-to `addglob()`.
+这也就意味着：
+编译器里凡是调用 `addglob()` 的地方，
+现在都必须显式传入一个 `class` 值。
+以前 `addglob()` 会自己固定把 `C_GLOBAL` 传给 `newsym()`；
+现在则改成由调用方来决定。
 
-### The `extern` Keyword and Our Grammar
+### `extern` 关键字与我们的语法
 
-In terms of the grammar of our language, I'm going to enforce the rule
-that the `extern` keyword must come before any other words in a type
-description. Later on, I'll add `static` to the list of words. The
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)
-that we saw in past parts has these production rules:
+从语法上说，
+我这里会强行规定：
+`extern` 必须出现在类型描述的最前面。
+后面我还打算把 `static` 也一起纳入这套规则。
+我们在之前看过的那份
+[C 的 BNF 语法](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)
+中，
+相关产生式大概是这样：
 
 ```
 storage_class_specifier
@@ -367,13 +412,15 @@ declaration_specifiers
 
 ```
 
-which I think allows `extern` to come anywhere in the type specification.
-Oh well, we are building a subset of the C language here!
+我觉得这套规则基本允许 `extern`
+出现在类型说明中的任意位置。
+不过没关系，
+我们本来就在构建一个 C 语言子集。
 
-### Parsing the `extern` Keyword
+### 解析 `extern` 关键字
 
-As with the last five or six parts of this journey, I've made changes
-to `parse_type()` in `decl.c` again:
+和过去五六部分一样，
+这次我又改了 `decl.c` 里的 `parse_type()`：
 
 ```c
 int parse_type(struct symtable **ctype, int *class) {
@@ -390,29 +437,31 @@ int parse_type(struct symtable **ctype, int *class) {
 }
 ```
 
-Note now that `parse_type()` has a second parameter, `int *class`.
-This allows the caller to pass in the initial storage class for
-the type (probably C_GLOBAL, G_LOCAL or C_PARAM). If we see the
-`extern` keyword in `parse_type()`, we can change to become T_EXTERN.
-Also apologies, I couldn't think of a good name for the boolean flag
-that controls the 'while' loop.
+现在 `parse_type()` 多了第二个参数：`int *class`。
+这允许调用者先传入一个初始存储类别
+（通常可能是 `C_GLOBAL`、`C_LOCAL` 或 `C_PARAM`）。
+如果 `parse_type()` 读到了 `extern`，
+它就能把这个 class 改成 `C_EXTERN`。
+另外顺便说一句，
+我确实没想出比 `exstatic` 更顺手的布尔变量名了。
 
-### The `parse_type()` and `addglob()` Callers
+### `parse_type()` 与 `addglob()` 的调用方
 
-So we've modified the arguments to both `parse_type()` and `addglob()`. Now
-we have to find everywhere in the compiler where both functions are called,
-and ensure we pass a suitable `class` value to both of them.
+既然我们已经改了 `parse_type()` 和 `addglob()` 的参数列表，
+那就得把编译器里所有调用它们的地方都找出来，
+确保传进去的 `class` 值合理。
 
-In `var_declaration_list()` in `decl.c` where we are parsing a list of
-variables or parameters, we already get the storage class for these variables:
+在 `decl.c` 的 `var_declaration_list()` 中，
+我们本来就已经能拿到这些变量的存储类别：
 
 ```c
 static int var_declaration_list(struct symtable *funcsym, int class,
                                 int separate_token, int end_token);
 ```
 
-So we can pass the `class` to `parse_type()` which may change it, then
-call `var_declaration()` with the actual class:
+于是现在可以把这个 `class` 传给 `parse_type()`，
+让它有机会修改；
+然后再把实际 class 传给 `var_declaration()`：
 
 ```c
     ...
@@ -424,7 +473,7 @@ call `var_declaration()` with the actual class:
     var_declaration(type, ctype, class);
 ```
 
-And in `var_declaration()`:
+而在 `var_declaration()` 里：
 
 ```c
       switch (class) {
@@ -435,9 +484,11 @@ And in `var_declaration()`:
       }
 ```
 
-For local variables, we need to turn our attention to `single_statement()`
-in `stmt.c`. I also should, at this point, say that I'd previously forgot
-to add the cases for structs, unions, enums and typedefs here.
+对局部变量来说，
+我们还得看看 `stmt.c` 里的 `single_statement()`。
+另外我也得顺便承认一下，
+我之前还漏掉了 struct、union、enum 和 typedef
+在这里的几个 case。
 
 ```c
 // Parse a single statement and return its AST
@@ -474,9 +525,10 @@ static struct ASTnode *single_statement(void) {
 }
 ```
 
-Note that we start with `class= C_LOCAL`, but it might get modified
-by `parse_type()` before being passed to `var_declaration()`. This allows
-us to write code that looks like:
+注意我们一开始设的是 `class = C_LOCAL`，
+但在把它传给 `var_declaration()` 之前，
+`parse_type()` 完全可能把它改掉。
+这样就允许我们写出这样的代码：
 
 ```c
 int main() {
@@ -485,10 +537,11 @@ int main() {
 }
 ```
 
-## Testing the Code
+## 测试代码
 
-I've got one test program, `test/input70.c` which uses one of our new
-header files to confirm that the pre-processor works:
+我这里只有一个测试程序 `test/input70.c`，
+它会使用我们新写的某个头文件，
+用来确认预处理器是否工作正常：
 
 ```c
 #include <stdio.h>
@@ -503,22 +556,30 @@ int main() {
 }
 ```
 
-I was hoping that `errno` was still an ordinary integer so that I could
-declare `extern int errno;` in `include/errno.h`. But, apparently,
-`errno` is now a function and not a global integer variable. I think
-this tells you a) how old I am and b) how long it is since I've written
-C code.
+我本来还希望 `errno` 依旧只是一个普通整数，
+那我就可以在 `include/errno.h` 里写 `extern int errno;`。
+但看起来，
+现在的 `errno` 已经变成了一个函数，
+而不是全局整型变量。
+我想这同时说明了两件事：
+a) 我到底有多老；
+b) 我到底有多久没认真写过 C 代码了。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I feel like we have hit another milestone here. We now have external
-variables and header files. This also means that, *finally*, we can
-put comments into our source files. That really makes me happy.
+我觉得这又是一个里程碑。
+我们现在已经有了外部变量和头文件。
+这也意味着，
+*终于*，
+我们能在源码里写注释了。
+这一点让我非常高兴。
 
-We are up to just over 4,100 lines of code, of which about 2,800 lines
-are not comments and not whitespace. I have no idea exactly how many more
-lines of code we'll need to make the compiler self-compiling, but I'm going
-to hazard a guess of between 7,000 to 9,000 lines. We'll see!
+现在这套编译器大概已经超过 4,100 行代码，
+其中大约 2,800 行既不是注释也不是空白。
+我完全不知道还需要多少行代码，
+才能把它推进到“可以自举编译自己”的程度，
+但我愿意随便猜一个区间：
+也许最终会落在 7,000 到 9,000 行之间。走着看吧。
 
-In the next part of our compiler writing journey, we will add the `break`
-and `continue` keywords to our loop constructs. [Next step](../36_Break_Continue/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会给循环结构加入 `break` 和 `continue` 关键字。 [下一步](../36_Break_Continue/Readme.md)
