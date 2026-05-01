@@ -1,20 +1,30 @@
-# Part 51: Arrays, part 2
+# 第 51 部分：数组，第 2 部分
 
-In the last part of our compiler writing journey, I realised that I
-had implemented arrays not exactly right. In this part of our compiler
-writing journey, I'll try to rectify things.
+在上一部分的编译器编写之旅里，
+我意识到：
+自己对数组的实现并不完全正确。
+所以这一部分里，
+我打算把这件事尽量纠正一下。
 
-To start with, I stepped back and thought a bit about arrays and pointers.
-I realised that an array is similar to a pointer except:
+一开始，
+我先退后一步，
+重新想了想数组和指针的关系。
+后来我意识到，
+数组和指针很相似，
+但仍然有下面几个关键区别：
 
-  1. You can't use the unadorned array identifier as an rvalue.
-  2. The size of an array is the size of all of its elements.
-     The size of a pointer does not include the elements of
-     any array that it points to.
-  3. The address of an array (e.g. `&ary`) doesn't mean anything
-     useful, unlike the address of a pointer (e.g. `&ptr`).
+  1. 你不能把“裸数组标识符”直接当作右值随便使用。
+  2. 数组的大小是它所有元素大小的总和。
+     而指针的大小并不包含它所指向数组的那些元素。
+  3. 对数组取地址
+     （例如 `&ary`）
+     并没有什么真正有用的意义，
+     这点和对指针取地址
+     （例如 `&ptr`）
+     不一样。
 
-As an example of the first point above, consider:
+关于第一点，
+来看个例子：
 
 ```c
 int ary[5];
@@ -25,27 +35,38 @@ int main() {
    ary= ptr;            // Bad, can't change ary's base address
 ```
 
-And, for those C purists out there, yes I know that point 3 isn't
-entirely true. But I'm not going to use `&ary` anywhere, so I can
-get our compiler to reject it, and that means I won't need to
-implement this functionality!
+当然，
+如果这里有 C 语言洁癖患者，
+我知道你会说：
+第三点其实并不完全正确。
+但我自己不会在任何地方用到 `&ary`，
+所以我完全可以让编译器直接拒绝它。
+这样一来，
+我也就不必去实现这部分功能。
 
-So, exactly what do we need to change?
+所以，
+我们到底需要改些什么？
 
- + allow a scalar or an an array identifier before a '[' token
- + allow an unadorned array identifier but mark it as an rvalue
- + add some more errors when we try to do bad things with arrays
+ + 在 `'['` 前面允许出现标量标识符或数组标识符
+ + 允许裸数组标识符出现，但要把它标记成右值
+ + 当我们对数组做一些不该做的事时，再补几种错误提示
 
-That's about it. I've made these changes to the compiler. I hope that
-they cover all the array issues, but it's likely that I've overlooked
-something else. If so, we'll revisit again.
+差不多就这些。
+我已经按这个方向改了编译器。
+希望它已经覆盖了所有数组相关问题，
+不过也很可能还有别的遗漏。
+如果真有，
+那后面我们再回来继续修。
 
-## Changes to `postfix()`
+## 对 `postfix()` 的修改
 
-In the last part, I put in a "band-aid" fix to `postfix()` in `expr.c`,
-but it's time to go back and fix it properly. We need to allow
-unadorned array identifiers but mark them as an rvalues. Here are the
-changes:
+上一部分里，
+我在 `expr.c` 的 `postfix()`
+里先加了一个“创可贴式”的修复，
+但现在该回头把它真正修干净了。
+我们需要允许裸数组标识符出现，
+但同时把它们标记成右值。
+改动如下：
 
 ```c
 static struct ASTnode *postfix(void) {
@@ -80,15 +101,24 @@ static struct ASTnode *postfix(void) {
 }
 ```
 
-Now either scalar or array variables can be used unadorned, but arrays
-can't be lvalues. Also, arrays can't be pre- or post-incremented.
-We either load the address of the array base, or load the value in the
-scalar variable.
+现在，
+无论是标量变量还是数组变量，
+都可以以“裸标识符”形式出现。
+但数组不能作为左值使用。
+同时，
+数组也不允许做前置或后置自增。
 
-## Changes to `array_access()`
+换句话说，
+这里要么加载数组基址的地址，
+要么加载标量变量本身的值。
 
-Now we need to modify `array_access()` in `expr.c` to allow pointers
-to be used with '[' ']' indexing. Here are the changes:
+## 对 `array_access()` 的修改
+
+接下来我们还得修改 `expr.c`
+里的 `array_access()`，
+让指针同样也能配合 `'[' ']'`
+来做下标访问。
+改动如下：
 
 ```c
 static struct ASTnode *array_access(void) {
@@ -114,28 +144,38 @@ static struct ASTnode *array_access(void) {
 }
 ```
 
-We now check that the symbol exists and is either an array or a scalar
-variable of pointer type. Once this is OK, we either load the address
-of the array base, or load the value in the pointer variable.
+现在，
+我们会先确认：
+这个符号确实存在，
+而且它要么是一个数组，
+要么是一个“指针类型的标量变量”。
+确认无误之后，
+如果它是数组，
+就加载数组基址的地址；
+如果它是指针变量，
+那就加载这个指针变量里保存的值，
+并把它视作右值。
 
-## Testing the Code Changes
+## 测试这些代码改动
 
-I won't go through all the tests; instead I'll summarise them:
+我就不把所有测试逐个展开了，
+直接概括一下：
 
- + `tests/input124.c` checks that `ary++` can't be done on an array.
- + `tests/input125.c` checks that we can assign `ptr= ary` and then
-    access the array though the pointer.
- + `tests/input126.c` checks that we can't do `&ary`.
- + `tests/input127.c` calls a function with `fred(ary)` and ensures
-    that we can receive it as a pointer parameter.
+ + `tests/input124.c` 检查不能对数组做 `ary++`。
+ + `tests/input125.c` 检查我们可以写 `ptr= ary`，然后通过指针访问数组。
+ + `tests/input126.c` 检查不能写 `&ary`。
+ + `tests/input127.c` 检查可以用 `fred(ary)` 把数组传给函数，并在函数里把它作为指针参数接收。
 
 
-## Conclusion and What's Next
+## 总结与下一步
 
-Well, I was worried that I'd had to rewrite a whole pile of code to
-get arrays to work correctly. As it stood, the code was nearly right
-but just needed some more tweaking to cover all the functionality that
-we needed.
+原本我还挺担心：
+为了让数组行为正确，
+是不是得把整大坨代码都重写掉。
+结果回头看，
+其实原先的实现已经很接近了，
+只是还需要再补上几处调整，
+把我们真正需要的功能覆盖完整。
 
-In the next part of our compiler writing journey, we will go back to
-mopping up. [Next step](../52_Pointers_pt2/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会回到继续收尾清扫。 [下一步](../52_Pointers_pt2/Readme.md)
