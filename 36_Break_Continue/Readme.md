@@ -1,44 +1,60 @@
-# Part 36: `break` and `continue`
+# 第 36 部分：`break` 与 `continue`
 
-A while back, when I wrote another
-[simple compiler](https://github.com/DoctorWkt/h-compiler)
-for a typeless language, I didn't use an abstract syntax tree.
-This made it awkward to add the `break` and `continue` keywords to
-the language.
+前一阵子，
+我曾经给一个无类型语言写过另一个
+[简单编译器](https://github.com/DoctorWkt/h-compiler)，
+当时并没有使用抽象语法树（AST）。
+这让给语言加入 `break` 和 `continue` 关键字
+变得相当别扭。
 
-Here, we do have an AST tree for each function. This makes it much easier
-to implement `break` and `continue`. I'll outline the reasons for this below.
+而在这里，
+我们确实为每个函数都构建了一棵 AST。
+这让实现 `break` 和 `continue`
+容易了许多。
+下面我会说明原因。
 
-## Adding the `break` and `continue`
+## 加入 `break` 与 `continue`
 
-Unsurprisingly, we have two new tokens T_BREAK and T_CONTINUE, and the
-scanner code in `scan.c` recognises the `break` and `continue` keywords.
-As always, browse the code to see how this is done.
+不出意外，
+我们又新增了两个 token：`T_BREAK` 和 `T_CONTINUE`，
+同时 `scan.c` 中的扫描器代码
+也已经能识别 `break` 与 `continue` 关键字。
+具体做法照例直接去看代码就行。
 
-## New AST Node Types
+## 新的 AST 节点类型
 
-We also have two new AST node types in `defs.h`: A_BREAK and A_CONTINUE.
-When we parse a `break` keyword, we can generate an A_BREAK AST leaf;
-ditto an A_CONTINUE leaf for the `continue` keyword.
+我们还在 `defs.h` 中加入了两个新的 AST 节点类型：
+`A_BREAK` 和 `A_CONTINUE`。
+当我们解析到 `break` 关键字时，
+就可以生成一个 `A_BREAK` AST 叶子节点；
+同理，
+`continue` 会生成一个 `A_CONTINUE` 叶子节点。
 
-Then, when we walk the AST to generate the assembly code, when we encounter
-an A_BREAK node, we need to generate an assembly jump to the label at the
-end of the loop that we are currently in. And for A_CONTINUE, we jump to
-the label just before the loop condition is evaluated.
+接下来，
+当我们遍历 AST 并生成汇编代码时，
+一旦遇到 `A_BREAK` 节点，
+就需要生成一条汇编跳转，
+跳到“当前所在循环”的末尾标签。
+而如果遇到 `A_CONTINUE`，
+就跳到“重新判断循环条件之前”的那个标签。
 
-Now, how do we know which loop we are in?
+问题来了：
+我们怎么知道自己当前处在哪一层循环里？
 
-## Tracking the Most Recent Loop
+## 跟踪最近一层循环
 
-Loops can be nested, and so there can be any number of loop labels
-in use at any point. This is what I found difficult when I
-wrote my previous compiler. Now that we have an AST which we traverse
-recursively, we can pass the details of the latest loop's labels
-down to our children in the AST tree.
+循环可以嵌套，
+所以在任意时刻都可能有多组循环标签同时存在。
+这正是我之前写上一个编译器时
+觉得最棘手的地方。
+而现在既然我们有一棵可以递归遍历的 AST，
+那就可以把“最近一层循环的标签信息”
+一路向下传给子节点。
 
-We already do this sort of thing to get to the end of an 'if' or 'while'
-statement. Here's some of the code for generating the assembly for 'if'
-from `gen.c`:
+其实我们已经在做类似的事了，
+比如为 `if` 或 `while` 语句生成代码时，
+都需要知道该跳往哪里。
+下面是 `gen.c` 中为 `if` 生成汇编的一部分代码：
 
 ```c
 // Generate the code for an IF statement
@@ -57,23 +73,29 @@ static int genIF(struct ASTnode *n) {
   genAST(n->left, Lfalse, n->op);
 ```
 
-The left-hand AST child is the one that evaluates the 'if' statement's
-condition, so it needs access to the label that we have just generated.
-So when we generate this child's assembly output with `genAST()`, we
-also pass in the label's details.
+左子树负责计算 `if` 条件，
+所以它必须拿到我们刚生成的那个标签。
+因此在调用 `genAST()` 生成这个子节点的汇编输出时，
+我们也会把标签信息一起传进去。
 
-For loops, we need to pass to `genAST()` the label which is at the
-loop's end and also the label just before the code that evaluates the
-loop's condition. To this end, I've changed the interface to `genAST()`:
+而对循环来说，
+我们需要传给 `genAST()` 的，
+除了循环末尾标签以外，
+还要有“判断循环条件之前”的那个标签。
+因此我修改了 `genAST()` 的接口：
 
 ```c
 int genAST(struct ASTnode *n, int iflabel, int looptoplabel,
            int loopendlabel, int parentASTop);
 ```
 
-We keep the existing `iflabel` and augment this with the two loop labels.
-Now we need to pass to `genAST()` the labels that are generated for each loop.
-So, in the code to generate the 'while' loop code:
+我们保留原有的 `iflabel`，
+同时再补上两个循环相关标签。
+这样一来，
+就必须把每个循环生成出来的标签
+继续传给 `genAST()`。
+所以在生成 `while` 循环代码时，
+就会变成这样：
 
 ```c
 static int genWHILE(struct ASTnode *n) {
@@ -93,9 +115,10 @@ static int genWHILE(struct ASTnode *n) {
 }
 ```
 
-## `genAST()` is Recursive
+## `genAST()` 是递归的
 
-Now, what about nested loops? Consider the code:
+那嵌套循环怎么办？
+来看下面这段代码：
 
 ```
 L1:
@@ -112,30 +135,46 @@ L3:
 L4:
 ```
 
-the `if (y == 6) break` should leave the inner loop and jump to the `x++`
-code (i.e. L3), and the `if (x == 6) break;` code should leave the outer loop
-and jump to label L4.
+这里的 `if (y == 6) break`
+应该跳出内层循环，
+并跳到 `x++` 那段代码，
+也就是 `L3`；
+而 `if (x == 6) break;`
+则应该跳出外层循环，
+跳到标签 `L4`。
 
-This works because `genAST()` calls `genWHILE()` for the outer loop.
-This calls `genAST(L1, L4)` so that the first `break` sees these loop
-labels. Then, when we hit the second loop, `genWHILE()` is called again.
-It generates new loop labels and calls `genAST(L2, L3)` to generate the
-inner loop code. Thus, the second `break` sees the L2 and L3 labels, not the
-L1 and L4 labels. 
+之所以能做到这一点，
+是因为 `genAST()` 在处理外层循环时会调用 `genWHILE()`。
+后者再调用 `genAST(L1, L4)`，
+于是第一个 `break`
+看到的就是这组循环标签。
+随后当代码走到第二层循环时，
+又会再次调用 `genWHILE()`。
+它会生成新的一组循环标签，
+并调用 `genAST(L2, L3)` 来生成内层循环代码。
+于是第二个 `break`
+看到的是 `L2` 和 `L3`，
+而不是 `L1` 与 `L4`。
 
-Finally, once the inner compound statement is generated, the inside `genAST()`
-returns, and get back to the code which sees L1 and L4 as the loop labels.
+最后，
+当内层复合语句生成完成后，
+内部那次 `genAST()` 返回，
+流程又回到外层那套带有 `L1` 和 `L4` 标签的上下文。
 
-## Implications of the Above
+## 上述设计带来的实现含义
 
-What this means, in terms of implementation, is that anywhere that something
-calls `genAST()` (including itself), and we could be in a loop, then the
-current loop labels must get propagated down to the children involved.
+这在实现上的含义就是：
+凡是会调用 `genAST()` 的地方
+（包括 `genAST()` 自己递归调用自己时），
+只要当前上下文有可能处在某个循环里，
+那就必须把当前循环标签继续往下传。
 
-We have already seen the change to `genWHILE()` to pass to `genAST()` the
-new loop labels. Let's look at where else we need to propagate loop labels.
+前面我们已经看过 `genWHILE()`
+如何把新的循环标签传给 `genAST()`。
+现在再看看还有哪些地方也必须传播这些标签。
 
-When I first implemented `break`, I wrote this test program
+当我第一次实现 `break` 时，
+写了下面这个测试程序：
 
 ```c
 int main() {
@@ -149,29 +188,35 @@ int main() {
   printf("Done\n");
 ```
 
-and generated the assembly for it. The `break` was being turned into
-a jump to label L0, i.e. the loop's end label wasn't getting to the
-code dealing with `break`. Looking at a stack trace for the compiler, I
-realised that:
+然后我看了一眼生成出来的汇编，
+发现 `break`
+竟然被翻译成了跳往标签 `L0`。
+也就是说，
+循环末尾标签根本没有传到处理 `break` 的那段代码里。
+我沿着编译器的调用栈一查，
+发现流程是这样的：
 
-  + The `genAST()` for the function called
-  + `genWHILE()` for the loop which generated the labels and passed them to
-  + `genAST()` for the loop body, which called
-  + `genIF()` which passed **no** labels in to
-  + `genAST()` for the 'if' body. Hence, the `break` never saw the labels.
+  + 函数级别的 `genAST()` 调用了
+  + 负责循环的 `genWHILE()`，它生成标签并把它们传给了
+  + 处理循环体的 `genAST()`，而它又调用了
+  + `genIF()`，但这里并没有继续把任何标签传给
+  + 用来生成 `if` 语句体的 `genAST()`。于是 `break` 根本看不到标签。
 
-So I also had to modify the argument list for `genIF()`:
+所以我还得顺手修改 `genIF()` 的参数列表：
 
 ```c
 static int genIF(struct ASTnode *n, int looptoplabel, int loopendlabel);
 ```
 
-I won't go through all the code in `gen.c`, but open up the file in
-an editor or text viewer and look for all the `genAST()` calls to see
-where the loop labels do get propagated.
+我就不把 `gen.c` 里所有相关代码一段段贴出来了；
+你直接打开文件，
+搜一遍所有对 `genAST()` 的调用，
+就能看到这些循环标签到底是怎样一路向下传递的。
 
-Finally, we actually do need to generate the assembly code for `break`
-and `continue`. Here is the code to do it in `genAST()` in `gen.c`:
+最后，
+我们当然还得真正为 `break` 和 `continue`
+生成汇编代码。
+下面就是 `gen.c` 里 `genAST()` 中对应的实现：
 
 ```c
     case A_BREAK:
@@ -182,15 +227,21 @@ and `continue`. Here is the code to do it in `genAST()` in `gen.c`:
       return (NOREG);
 ```
 
-## Parsing `break` and `continue`
+## 解析 `break` 与 `continue`
 
-This time around I covered the code generation side before the parsing, but
-now it's time to get to the parsing of these new keywords. Luckily the
-syntax is either `break ;` or `continue ;`. So it would seem that they should
-be easy to parse. There is, of course, a small wrinkle.
+这次我先讲了代码生成，
+再回过头来说解析流程。
+现在该轮到这两个新关键字的解析了。
+好在它们的语法非常简单：
+要么是 `break ;`，
+要么是 `continue ;`。
+看起来应该很好处理。
+当然，
+其中还是有个小小的弯。
 
-We parse individual statements in `single_statement()` in `stmt.c`, so
-the change is small:
+我们是在 `stmt.c` 的 `single_statement()`
+里解析单条语句的，
+所以改动很小：
 
 ```c
     case T_BREAK:
@@ -199,8 +250,8 @@ the change is small:
       return (continue_statement());
 ```
 
-with a slight change in `compound_statement()` to ensure that the
-statement is followed by a semicolon:
+另外还得在 `compound_statement()` 中做一点小修改，
+确保这些语句后面跟着分号：
 
 ```c
 compound_statement(void) {
@@ -221,7 +272,8 @@ compound_statement(void) {
 }
 ```
 
-Now the wrinkle. This following program is not legal:
+现在来说那个小弯。
+下面这段程序其实是非法的：
 
 ```c
 int main() {
@@ -229,10 +281,11 @@ int main() {
 }
 ```
 
-as there is no loop to break out of. We need to track the depth of
-the loops we are parsing, and only allow a `break` or `continue` statement
-when the depth is not zero. Thus, the functions to parse these keywords
-look like:
+因为这里根本没有任何循环可以跳出。
+所以我们必须跟踪“当前正在解析的循环深度”，
+只有深度不为零时，
+才允许出现 `break` 或 `continue`。
+因此这两个关键字的解析函数会写成这样：
 
 ```c
 // Parse a break statement and return its AST
@@ -256,17 +309,20 @@ static struct ASTnode *continue_statement(void) {
 }
 ```
 
-## Loop Levels
+## 循环层级
 
-We are going to need a `Looplevel` variable to track the level of the
-loops being parsed. This is in `data.h`:
+我们需要一个 `Looplevel` 变量
+来记录当前正在解析的循环嵌套层数。
+它定义在 `data.h` 中：
 
 ```c
 extern_ int Looplevel;                  // Depth of nested loops
 ```
 
-We need to set the level up as required. Each time we start a new
-function, the level is set to zero (in `decl.c`):
+接下来就得在合适的地方维护这个层级。
+每当我们开始解析一个新函数时，
+层级都会被重置为零
+（代码在 `decl.c` 中）：
 
 ```c
 // Parse the declaration of function.
@@ -280,8 +336,9 @@ struct ASTnode *function_declaration(int type) {
 }
 ```
 
-Now, each time we parse a loop, we increment the loop level for the
-loop's body (in `stmt.c`):
+而每当解析到一个循环时，
+就要在解析循环体之前把层级加一
+（代码在 `stmt.c` 中）：
 
 ```c
 // Parse a WHILE statement and return its AST
@@ -307,12 +364,13 @@ static struct ASTnode *for_statement(void) {
 }
 ```
 
-And this gives us the ability to determine if we are inside a loop or
-not inside a loop.
+这样一来，
+我们就能判断自己当前到底是在循环内部，
+还是根本不在循环里。
 
-## The Test Code
+## 测试代码
 
-Here is the test code, `tests/input71.c`:
+下面是测试程序 `tests/input71.c`：
 
 ```c
 #include <stdio.h>
@@ -331,9 +389,12 @@ int main() {
 }
 ```
 
-As I still haven't solved the "dangling else" problem, the `break`
-statement has to enclosed in  '{' ... '}' to make it into a compound
-statement. Apart from that, the code works as expected:
+因为我还没有解决 “dangling else” 问题，
+所以这里的 `break`
+还必须放在 `'{ ... }'`
+这样的复合语句里。
+除此之外，
+这段代码的行为是符合预期的：
 
 ```
 0
@@ -352,14 +413,19 @@ statement. Apart from that, the code works as expected:
 Done
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I knew that adding support for `break` and `continue` was going to be
-easier than it was for my earlier compiler, because of the AST. However,
-there were still some minor issues and wrinkles that we had to deal with
-in the process of implementing them.
+我一开始就知道，
+有了 AST 之后，
+给 `break` 和 `continue` 增加支持
+肯定会比我上一个编译器轻松不少。
+不过在真正实现过程中，
+还是出现了一些小问题和小褶皱，
+需要逐个处理。
 
-Now that we have the `break` keyword in the language, I will attempt to
-add `switch` statements in the next part of our compiler writing journey.
-This is going to require the addition of switch jump tables, and I know
-this is going to be complicated. So get ready for an interesting next step. [Next step](../37_Switch/Readme.md)
+现在既然语言里已经有了 `break`，
+下一部分我就要尝试加入 `switch` 语句了。
+这会要求我们实现 `switch` 的跳转表（jump table），
+而我知道这件事不会简单。
+所以，
+准备迎接下一段有点意思的旅程吧。 [下一步](../37_Switch/Readme.md)

@@ -1,10 +1,14 @@
-# Part 37: Switch Statements
+# 第 37 部分：`switch` 语句
 
-In this part of our compiler writing journey, we are going to implement
-the 'switch' statement. This is really tricky for several reasons which
-I'll cover. So let's start with an example and look at the implications.
+在编译器编写之旅的这一部分里，
+我们要实现 `switch` 语句。
+这件事之所以棘手，
+有好几个原因，
+我会逐步展开说明。
+所以还是先从一个例子开始，
+看看这里面到底牵扯到哪些影响。
 
-## An Example Switch Statement
+## 一个 `switch` 语句示例
 
 ```c
   switch(x) {
@@ -15,45 +19,62 @@ I'll cover. So let's start with an example and look at the implications.
   }
 ```
 
-This is like a multi-way 'if' statement where the value of `x` chooses
-the branch to take. However, we need to insert the `break` statement to
-bypass all the other branches; if we leave out the `break` statement,
-the branch that we are in falls through and continues on with the execution
-of the next branch.
+它有点像一个“多路分支版的 `if` 语句”：
+由 `x` 的值来决定执行哪一条分支。
+不过这里必须插入 `break` 语句，
+用来跳过后续所有其它分支；
+如果你省掉 `break`，
+那么当前分支执行完之后，
+流程就会继续“贯穿（fall through）”
+到下一条分支里。
 
-The expression for the 'switch' decision has to be integer, and all of the
-case options have to be integer literals. We can't say `case 3*y+17`, for
-example.
+`switch` 判定表达式必须是整数类型，
+而所有 `case` 选项也都必须是整数字面量。
+比如你不能写成 `case 3*y+17`。
 
-The `default` case catches all values that are not given by previous cases.
-It has to appear as the last case in the list. Also, we cannot have duplicate
-case values, so `case 2: ...; case 2` is not permitted.
+`default` 分支会兜底匹配所有前面没有列出的值。
+它必须出现在分支列表的最后。
+另外我们也不能让 `case` 值重复，
+所以像 `case 2: ...; case 2`
+这样的写法是不允许的。
 
-## Converting the Above into Assembly
+## 如何把上面的例子翻译成汇编
 
-One way to translate a 'switch' statement into assembly is to treat it
-as a multi-way 'if' statement. This would mean that we would compare
-`x` against integer values, one after the other, and go into or skip
-over sections of assembly code as required. This would work but it makes
-the assembly code inefficient, especially if you consider this example:
+把 `switch` 翻译成汇编的一种方式，
+就是把它当成“多路 `if`”来处理。
+也就是说，
+不断把 `x` 和各个整数值一一比较，
+再根据比较结果进入或跳过对应的汇编代码块。
+这样当然能工作，
+但效率会比较糟，
+尤其是像下面这种例子：
 
 ```c
   switch (2 * x - (18 +y)/z) { ... }
 ```
 
-Given our current
-"[KISS](https://en.wikipedia.org/wiki/KISS_principle)"
-compiler's operation, we would have to evaluate the
-expression again and again for each comparison against a literal value.
+按照我们当前这个
+遵循
+[`KISS`](https://en.wikipedia.org/wiki/KISS_principle)
+原则的编译器实现方式，
+如果走“多路 `if`”那条路，
+就不得不为每一次与字面量的比较
+重复计算这整个表达式。
 
-It makes more sense to evaluate the 'switch' expression once. Then, compare
-this value against a table of case literal values. When we find a match, we
-jump to the code branch associated with the case values. This is known
-as a [jump table](https://en.wikipedia.org/wiki/Branch_table).
+更合理的方式是：
+先把 `switch` 表达式求值一次，
+再拿这个值去和一张由 `case` 字面量构成的表逐项比较。
+一旦匹配成功，
+就跳到对应 `case` 的代码分支。
+这就是所谓的
+[跳转表（jump table）](https://en.wikipedia.org/wiki/Branch_table)。
 
-It means that, for each case option, we will need to create a label to place
-at the beginning of the code for this option. As an example, the jump table
-for the first example above might look like:
+这意味着，
+每一个 `case` 选项
+都必须拥有一个专属标签，
+放在该选项代码的开头。
+以前面的例子来说，
+跳转表大概会像这样：
 
 | Case Value | Label |
 |:----------:|:-----:|
@@ -62,101 +83,157 @@ for the first example above might look like:
 |     3      |  L22  |
 |  default   |  L26  |
 
-We also need a label to mark the code after the 'switch' statement. When
-one code branch wants to `break;`, we jump to this 'switch' end label.
-Otherwise, we let the code branch fall through into the next code branch.
+我们还需要一个标签，
+用来标记整个 `switch` 语句之后的位置。
+这样某个分支里如果执行了 `break;`，
+就可以直接跳到这个 “switch 结束标签”。
+否则，
+就让当前分支自然落入下一个分支。
 
-## Parsing Implications
+## 解析层面的影响
 
-All of the above is fine and good, except that we have to parse a 'switch'
-statement from top to bottom. This means that we won't know how big the
-jump table should be until after we have parsed all of the cases. This
-also means that, unless we perform some clever tricks, we will have generated
-the assembly code for all the cases *before* we can generate the jump table.
+上面这些思路看起来都不错，
+但解析时会碰到一个现实问题：
+我们必须从上到下解析整个 `switch` 语句。
+这意味着，
+只有把所有 `case` 都读完之后，
+我们才知道跳转表到底该有多大。
+这也意味着，
+除非我们耍一些比较聪明的技巧，
+否则在能够生成跳转表之前，
+我们已经先把各个 `case` 的汇编代码都生成出来了。
 
-As you know, I'm writing this compiler following the "KISS principle": keep
-it simple, stupid! So I am avoiding the clever tricks, but this means that,
-yes, we are going to delay the output of the jump table until after we
-generate all of the assembly code for the various cases.
+你也知道，
+我写这个编译器一直遵循的是 “KISS principle”：
+keep it simple, stupid！
+所以我会尽量避开那些花哨技巧。
+代价就是：
+没错，
+我们会把跳转表的输出推迟到
+所有分支汇编代码都生成完之后。
 
-Visually, here is how we are going to lay out our code:
+从视觉上看，
+我们的代码布局会像这样：
 
 ![](Figs/switch_logic.png)
 
-The code to evaluate the switch decision is at the top, as we parse it first.
-We don't want to continue on into the first case, so we can jump to a label
-which we will output later.
+最上面是计算 `switch` 判定值的代码，
+因为解析时它最先出现。
+但我们不希望执行流直接落进第一个 `case`，
+所以会先跳到一个“稍后才输出”的标签。
 
-Then we parse each case statement and generate the corresponding assembly code.
-We will have already generated an "end of switch" label, so we can jump to it.
-Again, we will output this label later.
+然后，
+我们逐个解析每个 `case`，
+并生成对应的汇编代码。
+由于 “switch 结束标签” 已经提前生成好了，
+所以其中任何一段代码都可以跳到它那里去。
+同样，
+这个标签本身也是稍后才真正输出。
 
-As we generate each case, we get a label for it and output this label. 
-Once all the cases and the default case (if any) are output, we can now
-generate the jump table.
+在为每个 `case` 生成代码时，
+我们都会给它分配一个标签并立即输出该标签。
+等到所有 `case` 和可能存在的 `default`
+都输出完成之后，
+就终于可以生成跳转表了。
 
-But now we need some code to walk the jump table, compare the switch
-decision against each case value, and jump appropriately. We could
-generate this assembly code for each and every 'switch' statement but,
-if this jump handling code is large, we will be wasting memory. It's
-better to have one copy of the jump handling code in memory, but now
-we have to jump to it! Even worse, this code doesn't know which register
-holds the switch decision result, so we will have to copy this register
-into a known register, and copy the base of the jump table into a known
-register.
+但这时又冒出另一个问题：
+我们还需要一段代码去遍历跳转表，
+把 `switch` 的判定值和每个 `case` 值进行比较，
+再跳到正确的位置。
+当然可以为每一条 `switch` 语句
+都单独生成这段汇编，
+但如果这段“跳转处理逻辑”本身体积不小，
+那就会很浪费内存。
+更好的做法是：
+内存里只放一份通用的跳转处理代码，
+然后让不同的 `switch` 都跳过去复用它。
 
-What we have done here is trade off complexity in the parsing and code
-generation for a spaghetti of assembly code with jumps all over the place.
-Well, the CPU can deal with the jump spaghetti, so for now it's a fair
-tradeoff. Obviously, a production compiler would do things differently.
+可问题又来了：
+这段通用代码并不知道“当前的 `switch` 判定值”
+放在哪个寄存器里。
+因此，
+我们还得先把这个值复制进一个约定好的寄存器，
+再把跳转表基地址也复制进另一个约定好的寄存器。
 
-The red lines in the diagram show the flow of execution from the
-switch decision to loading the registers to the jump table handling
-and finally to the specific case code. The green line shows that the
-base address of the jump table is passed to the jump table handling code.
-Finally, the blue lines shows that the case ended with a `break;` which
-jumped to the end of the switch assembly code.
+我们实际上是在这里做了一次权衡：
+把解析与代码生成的复杂度，
+换成了一坨到处跳来跳去的“汇编意大利面”。
+不过 CPU 倒是不在乎这些跳转意大利面，
+所以目前来看这笔交易还算划算。
+当然，
+真正的生产级编译器大概率会采用不同做法。
 
-So, the assembly output is ugly but it does work. Now that we've seen
-how we are going to implement 'switch' statements, let's actually do it.
+图中的红线展示了执行流：
+先计算 `switch` 判定值，
+再把寄存器准备好，
+进入跳转表处理逻辑，
+最后跳到具体 `case` 的代码。
+绿线表示：
+跳转表的基地址会被传递给那段跳转处理代码。
+最后，
+蓝线表示某个 `case`
+因为执行了 `break;`
+而跳到了 `switch` 汇编代码的末尾。
 
-## New Keywords and Tokens
+所以整体来看，
+汇编输出确实很丑，
+但它是能工作的。
+既然我们已经看清楚
+`switch` 的实现路线，
+那就正式动手吧。
 
-We have two new tokens, T_CASE and T_DEFAULT, to go along with the new `case`
-and `default` keywords. As always, browse the code to see how this is done.
+## 新关键字与 token
 
-## New AST Node Types
+为了支持新的 `case` 和 `default` 关键字，
+我们新增了两个 token：`T_CASE` 和 `T_DEFAULT`。
+具体代码照例自己去看实现。
 
-We need to build the AST tree to represent 'switch' statements. The structure
-of a 'switch' statement is in no way a binary tree like our expressions.
-But it is *our* AST tree, so we can shape it any way that suits us.
-So I sat down for a bit and decided to go with this structure:
+## 新的 AST 节点类型
+
+我们需要构建一棵 AST
+来表示 `switch` 语句。
+但 `switch` 语句的结构
+显然不像普通表达式那样是一棵二叉树。
+不过 AST 是我们自己的，
+想怎么塑形都可以。
+于是我坐下来想了一阵子，
+最后决定采用下面这个结构：
 
 ![](Figs/switch_ast.png)
 
-The root of the 'switch' tree is A_SWITCH, On the left is the sub-tree with
-the expression that calculates the switch's condition. On the right we
-have a linked list of A_CASE nodes, one for each case. Finally, there is
-an optional A_DEFAULT to capture any default case.
+`switch` 语法树的根节点是 `A_SWITCH`。
+左边子树保存“计算 `switch` 条件表达式”的那棵树。
+右边则是一串由 `A_CASE` 组成的链表，
+每个 `case` 一个节点。
+最后，
+还可以有一个可选的 `A_DEFAULT`
+用来表示默认分支。
 
-The `intvalue` field in each A_CASE node will hold the case value which
-the expression must match. The left child sub-tree will hold the details
-of the compound statement which is the case's body. At this point, we don't
-have any jump labels or the jump table: we will generate this later.
+每个 `A_CASE` 节点中的 `intvalue` 字段，
+保存的是该 `case` 的值，
+也就是 `switch` 表达式必须匹配到的整数。
+左子树则保存该 `case` 语句体的复合语句细节。
+在这个阶段里，
+我们还没有跳转标签，
+也还没有跳转表；
+这些都留到后面的代码生成阶段再说。
 
-## Parsing the Switch Statement
+## 解析 `switch` 语句
 
-With all the above on-board, we're now ready to look at the parsing of
-a 'switch' statement. There is quite a lot of error checking code here,
-so I will take it in small sections. This code is in `stmt.c` and
-is called from `single_statement()`:
+到这里，
+前置背景都铺好了，
+终于可以来看 `switch` 语句本身的解析代码了。
+这里面包含不少错误检查逻辑，
+所以我会分小段来看。
+代码位于 `stmt.c` 中，
+并由 `single_statement()` 调用：
 
 ```c
     case T_SWITCH:
       return (switch_statement());
 ```
 
-Let's go..
+开始吧。
 
 ```c
 // Parse a switch statement and return its AST
@@ -180,10 +257,13 @@ static struct ASTnode *switch_statement(void) {
     fatal("Switch expression is not of integer type");
 ```
 
-OK, so there's a lot of local variables at the top which should clue you
-in that we will have to deal with some state in this function. This first
-section is easy, though: parse the `switch (expression) {` syntax, 
-get the AST for the expression and ensure that its is of integer type.
+可以看到，
+开头这一堆局部变量已经在暗示：
+这个函数里要维护不少状态。
+不过第一段逻辑还算简单：
+先解析 `switch (expression) {` 这个语法，
+拿到表达式对应的 AST，
+再检查它是否为整数类型。
 
 ```c
   // Build an A_SWITCH subtree with the expression as
@@ -194,11 +274,17 @@ get the AST for the expression and ensure that its is of integer type.
   Switchlevel++;
 ```
 
-We've got the switch decision tree, so we can now build the A_SWITCH node
-which we will return. Do you remember that we could only let a `break;`
-occur when we are inside at least one loop. Well, now we also have to
-let `break;` happen when there is at least one 'switch' statement. Thus,
-there is a new global variable, `Switchlevel` to record this.
+既然 `switch` 的条件表达式子树已经拿到，
+我们就可以先构造一个 `A_SWITCH` 节点，
+后面作为最终返回值。
+你应该还记得，
+之前我们只允许在“至少处于一层循环里”的情况下
+出现 `break;`。
+而现在，
+只要处于某个 `switch` 语句内部，
+`break;` 也应该被允许。
+因此这里引入了一个新的全局变量 `Switchlevel`
+来记录这一层上下文。
 
 ```c
   // Now parse the cases
@@ -213,13 +299,19 @@ there is a new global variable, `Switchlevel` to record this.
   }
 ```
 
-The loop is controlled by `inloop` which starts at one. When we hit a '}'
-token, we reset it to zero and break out of this 'switch' statement, thus
-ending the loop. We also check that we have seen at least one case.
+这个循环由 `inloop` 控制，
+它一开始是 1。
+当我们遇到 `'}'` token 时，
+就把它改成 0，
+并跳出当前这个 `switch` 语句的解析循环。
+同时还会检查：
+我们至少已经看到过一个 `case`。
 
-> It's a bit weird using a 'switch' statement to parse 'switch' statements.
+> 用一个 `switch` 语句去解析 `switch` 语句，
+> 多少有点奇妙。
 
-Now we move on to the parsing of `case` and `default`:
+接下来就是 `case` 与 `default`
+的具体解析逻辑：
 
 ```c
       case T_CASE:
@@ -229,9 +321,12 @@ Now we move on to the parsing of `case` and `default`:
           fatal("case or default after existing default");
 ```
 
-We have a lot of common code to perform, so both tokens fall into the
-same code. First, ensure that we haven't already seen a default case,
-and this has to be the last case in the series.
+这两个 token 共用同一段处理逻辑，
+因为它们后续有很多共同步骤。
+首先必须确保：
+如果之前已经见过 `default`，
+那后面就不能再出现新的 `case` 或 `default`，
+因为 `default` 必须是最后一个分支。
 
 ```c
         // Set the AST operation. Scan the case value if required
@@ -240,8 +335,10 @@ and this has to be the last case in the series.
         } else ...
 ```
 
-If we are parsing `default:`, then there is no following integer value.
-Skip over the keyword and record that we have seen a default case.
+如果当前正在解析 `default:`，
+那它后面就没有整数字面量值。
+因此只需要跳过这个关键字，
+并记录“已经见过 default 分支”即可。
 
 ```c
         } else  {
@@ -260,20 +357,24 @@ Skip over the keyword and record that we have seen a default case.
         }
 ```
 
-This code deals specifically with `case <value>:`. We read in the value after
-the case using `binexpr()`. Now, I could have been "clever" and called
-`primary()` instead  which goes straight to parsing integer literals.
-However, `primary()` can call `binexpr()` anyway, so it really doesn't make
-any difference: we are still going to have to error check the resulting
-tree to ensure that it is an A_INTLIT node only.
+这段代码专门处理 `case <value>:`。
+我们通过 `binexpr()` 读入 `case` 后面的值。
+当然，
+我本来也可以故作聪明地调用 `primary()`，
+因为它更直接地针对整数字面量。
+不过 `primary()` 自己最终也可能回到 `binexpr()`，
+所以本质上没什么区别：
+反正最后都还是要检查生成出来的树
+是不是一个纯粹的 `A_INTLIT` 节点。
 
-Then we walk the list of previous A_CASE nodes that we have (`casetree`
-points to the head of this list) to ensure that we don't have any
-duplicate case values.
+然后我们还得遍历前面已经构建好的 `A_CASE` 链表
+（`casetree` 指向链表头），
+确认当前这个 `case` 值没有重复。
 
-Along the way, we have set the `ASTop` variable to either A_CASE for
-a case with an integer literal value or A_DEFAULT for the default case.
-We can now perform the code common to both.
+与此同时，
+我们也顺手把 `ASTop`
+设成了 `A_CASE` 或 `A_DEFAULT`，
+这样下一步就能进入两者共用的代码路径。
 
 ```c
         // Scan the ':' and get the compound expression
@@ -291,11 +392,15 @@ We can now perform the code common to both.
         break;
 ```
 
-Check that the next token is a ':'. Get the AST sub-tree with the
-compound statement in it. Build an A_CASE or A_DEFAULT node with
-this sub-tree as the left child, and link this to the linked list
-of A_CASE/A_DEFAULT nodes: `casetree` is the head and `casetail`
-is the tail of this list.
+这里先确认下一个 token 确实是 `':'`，
+然后解析它后面的复合语句 AST。
+接着用这个复合语句子树
+作为左子节点，
+构造一个 `A_CASE` 或 `A_DEFAULT` 节点，
+并把它接到不断增长的
+`A_CASE` / `A_DEFAULT` 链表后面：
+`casetree` 是链表头，
+`casetail` 是链表尾。
 
 ```c
       default:
@@ -304,8 +409,10 @@ is the tail of this list.
   }
 ```
 
-There should only be `case` and `default` keywords in the 'switch' body,
-so ensure that this is the case.
+按理说，
+`switch` 语句体里只应该出现
+`case` 和 `default` 关键字，
+因此这里要强制检查这一点。
 
 ```c
   Switchlevel--;
@@ -319,18 +426,25 @@ so ensure that this is the case.
   return(n);
 ```
 
-We've finally parsed all of the cases and the default case, and we now
-have the count of them and the list which `casetree` points to. Add
-these values to the A_SWITCH node and return this as the final tree.
+终于，
+所有 `case` 和可能存在的 `default`
+都解析完了。
+现在我们既拿到了它们的总数，
+也拿到了由 `casetree` 指向的那条链表。
+把这些信息挂回 `A_SWITCH` 节点上，
+然后返回这棵完整的语法树即可。
 
-OK, so that was a substantial amount of parsing. Now we need to
-turn our attention to code generation.
+好，
+这一大段解析工作总算结束。
+接下来该把注意力转到代码生成上了。
 
-## Switch Code Generation: An Example.
+## `switch` 代码生成：先看一个例子
 
-At this point I think it would be worth seeing the assembly output of
-an example 'switch' statement so that you can see how the code matches
-the graphic of execution flow that I gave at the top. Here is the example:
+在这个阶段，
+我觉得先看看一个 `switch` 示例生成出来的汇编会更有帮助。
+这样你就能把代码结构
+和我在开头给出的那张执行流程图对应起来。
+例子如下：
 
 ```c
 #include <stdio.h>
@@ -348,43 +462,52 @@ int main() {
 }
 ```
 
-First up, yes we do need '{' ... '}' around the case bodies. This is
-because I still haven't solved the "dangling else" problem, so all
-compound statements have to be surrounded by '{' ... '}'.
+首先说明一下：
+没错，
+这里的 `case` 语句体依然得用 `'{ ... }'` 包起来。
+因为我还没解决 “dangling else” 问题，
+所以所有复合语句目前都必须显式加花括号。
 
-I'm going to leave out the jump table handling code for now, but here is
-the assembly output for this example:
+我暂时先把“跳转表处理逻辑”那部分汇编省略掉，
+下面是这个例子剩余部分的汇编输出：
 
 ![](Figs/switch_logic2.png)
 
-The code that loads `x` into a register is at the top, and it
-jumps down past the jump table. As the jump table handling code
-doesn't know which register this will be, we always load the
-value into `%rax`, and we load the jump table's base address
-into `%rdx`.
+顶部那段代码会先把 `x` 载入某个寄存器，
+然后向下跳过跳转表。
+由于“跳转表处理代码”并不知道
+这个值原本落在哪个寄存器里，
+所以我们统一把它搬到 `%rax`；
+而跳转表的基地址则统一放进 `%rdx`。
 
-The jump table itself has this structure:
+跳转表本身的结构如下：
 
- + First is the number of cases with integer values
- + Next is a set of value/label pairs, one for each case
- + Finally there is the label of the default case. If there is
-   no default case, this has to be the label of the 'switch' end,
-   so that we do no code if there is no matching case.
+ + 第一项是“带整型值的 case 数量”
+ + 接下来是一组“值 / 标签”对，每个 case 一对
+ + 最后一项是 default 分支的标签。如果没有 default，
+   那这里就必须放 `switch` 结束标签，
+   这样在没有任何 case 匹配时就直接什么都不做
 
-The jump table handling code (which we will look at soon)
-interprets the jump table and jumps to one of the labels in this
-table. Let's assume that we have jumped to `L11` which is 
-`case 2:`. We perform the code for this case option. This option
-has  a `break;` statement, so there is a jump to `L9` which is
-the label for the end of the 'switch' statement.
+那段跳转表处理代码
+（我们很快就会看到）
+会解释这张表，
+然后跳到其中某个标签。
+假设现在跳到了 `L11`，
+也就是 `case 2:`。
+那我们就执行该分支对应的代码。
+由于这个分支里带有 `break;`，
+所以会跳到 `L9`，
+也就是整个 `switch` 语句结束的位置。
 
-## The Jump Table Handling Code
+## 跳转表处理代码
 
-You already know that x86-64 assembly code isn't my forte.
-Therefore, I've borrowed the jump table handling code directly
-from [SubC](http://www.t3x.org/subc/). I've added it to
-the `cgpreamble()` function in `cg.c`, so that it is output
-for every assembly file that we create. Here is the commented code:
+你已经知道，
+x86-64 汇编并不是我的强项。
+所以这段跳转表处理代码
+我是直接从 [SubC](http://www.t3x.org/subc/) 借来的。
+我把它加进了 `cg.c` 里的 `cgpreamble()` 函数，
+这样每个输出的汇编文件都会自动带上它。
+下面是带注释的代码：
 
 ```
 # internal switch(expr) routine
@@ -412,24 +535,27 @@ no:
         jmp     *%rax           # and jump to the default case
 ```
 
-We need to thanks Nils Holm for writing this, as I would never have arrived
-at this code!
+我们确实该感谢一下 Nils Holm 写出了这段代码，
+因为如果让我自己从头推，
+我多半是写不出来的。
 
-Now we can look at how the above assembly code
-gets generated. Fortunately, we already have lots
-of useful functions in `cg.c` which we can reuse.
+现在终于可以看看，
+前面那份汇编输出到底是怎样生成出来的了。
+好在 `cg.c` 里已经有不少现成函数可以复用。
 
-## Generating the Assembly Code
+## 生成汇编代码
 
-In `genAST()` in `gen.c`, up near the top we identify an A_SWITCH
-node and call a function to deal with this node and the tree below it.
+在 `gen.c` 的 `genAST()` 中，
+靠近顶部的位置，
+我们会识别 `A_SWITCH` 节点，
+然后调用一个专门的函数来处理它以及它下面的整棵子树。
 
 ```c
     case A_SWITCH:
       return (genSWITCH(n));
 ```
 
-So let's look at this new function in stages:
+下面就分阶段来看这个新函数：
 
 ```c
 // Generate the code for a SWITCH statement
@@ -445,9 +571,10 @@ static int genSWITCH(struct ASTnode *n) {
   caselabel = (int *) malloc((n->intvalue + 1) * sizeof(int));
 ```
 
-The reason for the `+1` here is that we may have a default
-case which needs a label even though it doesn't have a
-case value.
+这里要 `+1` 的原因是：
+即便存在一个 `default` 分支，
+它虽然没有 `case` 值，
+但依然需要一个标签位置。
 
 ```c
   // Generate labels for the top of the jump table, and the
@@ -458,8 +585,11 @@ case value.
   defaultlabel = Lend;
 ```
 
-These labels are made but not output as assembly yet.
-Until we have a default label, we set it to `Lend`.
+这些标签现在只是先生成出来，
+还没有真正输出为汇编。
+在还没遇到 `default` 分支之前，
+我们先把 `defaultlabel`
+默认设成 `Lend`。
 
 ```c
   // Output the code to calculate the switch condition
@@ -468,9 +598,11 @@ Until we have a default label, we set it to `Lend`.
   genfreeregs();
 ```
 
-We output the code to jump to the code after the
-jump table even though it hasn't been output. We can
-also free all the registers at this point.
+这里先输出“计算 `switch` 条件值”的代码，
+随后跳到跳转表之后的那段处理逻辑，
+哪怕那段汇编此刻还没真正输出也没关系。
+与此同时，
+我们也可以把寄存器全部释放掉。
 
 ```c
   // Walk the right-child linked list to
@@ -494,15 +626,20 @@ also free all the registers at this point.
   }
 ```
 
-This is the code that both generates the label for each case
-and also outputs the assembly code which is the body of the
-case. We store the case value and the case label in the two
-arrays. And, if this is the default case, we can update
-`defaultlabel` with the correct label.
+这段代码一边为每个 `case` 生成标签，
+一边输出它的语句体汇编。
+同时，
+还会把 `case` 值和对应标签
+保存到那两个数组里。
+如果当前节点是 `A_DEFAULT`，
+那就可以顺手把 `defaultlabel`
+更新成正确的标签。
 
-Also note that `genAST()` gets passed `Lend` which is the
-label after our 'switch' code. This allows any `break;`
-in the case body to jump out to what comes next.
+还要注意一点：
+这里传给 `genAST()` 的是 `Lend`，
+也就是整个 `switch` 代码之后的那个标签。
+这样 `case` 语句体里的任何 `break;`
+都可以直接跳出 `switch`。
 
 ```c
   // Ensure the last case jumps past the switch table
@@ -515,36 +652,42 @@ in the case body to jump out to what comes next.
 }
 ```
 
-We can't rely on the programmer to end their last case
-with a `break;'` statement, so we force the last case to
-have a jump to the end of the switch statement.
+我们不能指望程序员
+一定会给最后一个 `case`
+写上 `break;`，
+所以这里强制为最后一个分支
+补上一条跳往 `switch` 末尾的跳转。
 
-At this point we have:
+到这里，
+我们手上已经有了：
 
- + the register which has the switch value
- + the array of case values
- + the array of case labels
- + the number of cases
- + some useful labels
+ + 保存 `switch` 值的寄存器
+ + `case` 值数组
+ + `case` 标签数组
+ + `case` 的数量
+ + 一组有用的标签
 
-We pass all of these into `cgswitch()` in `cg.c`,
-and (apart from the code from SubC) this is the only new
-assembly code we need to introduce for this part.
+接着把这些全部传给 `cg.c` 里的 `cgswitch()`，
+除了前面从 SubC 借来的那段代码之外，
+这基本就是本部分新增的全部汇编相关工作了。
 
 ## `cgswitch()`
 
-Here, we need to build the jump table and
-load the registers so that we can jump to
-the `switch` assembly code. As a reminder,
-here is the jump table structure:
+在这里，
+我们需要真正构建跳转表，
+并把寄存器准备好，
+然后跳进那段 `switch` 汇编处理逻辑。
+再提醒一次，
+跳转表结构如下：
 
- + First is the number of cases with integer values
- + Next is a set of value/label pairs, one for each case
- + Finally there is the label of the default case. If there is
-   no default case, this has to be the label of the 'switch' end,
-   so that we do no code if there is no matching case.
+ + 第一项是“带整型值的 case 数量”
+ + 接下来是一组“值 / 标签”对，每个 case 一对
+ + 最后一项是 default 分支标签。如果没有 default，
+   那这里就必须是 `switch` 结束标签，
+   这样在没有任何匹配时就直接不执行任何分支
 
-For our example, the jump table looks like:
+以前面的例子来说，
+跳转表会像这样：
 
 ```
 L14:                                    # Switch jump table
@@ -555,7 +698,7 @@ L14:                                    # Switch jump table
         .quad   L13                     # default: jump to L13
 ```
 
-Here is how we generate all of this.
+下面就是生成它的代码：
 
 
 ```c
@@ -570,7 +713,7 @@ void cgswitch(int reg, int casecount, int toplabel,
   cglabel(label);
 ```
 
-This is the `L14:` above.
+这就是上面的 `L14:`。
 
 ```c
   // Heuristic. If we have no cases, create one case
@@ -582,11 +725,15 @@ This is the `L14:` above.
   }
 ```
 
-We must have at least one case value/label
-pair in the jump table. This code makes one
-that points at the default case. The case
-value is irrelevant: if it matches, fine. If
-not, we jump to the default case anyway.
+跳转表里至少必须有一组“值 / 标签”对。
+所以这里用了一个小技巧：
+如果根本没有普通 `case`，
+那就人工造出一条，
+直接指向 `default` 分支。
+这里的 `case` 值本身其实无所谓：
+即使它匹配了也没关系；
+如果不匹配，
+反正最后还是会跳到 `default`。
 
 ```c
   // Generate the switch jump table.
@@ -596,7 +743,9 @@ not, we jump to the default case anyway.
   fprintf(Outfile, "\t.quad\tL%d\n", defaultlabel);
 ```
 
-Here is the code to generate the jump table. Nice and easy.
+这段代码就是用来真正输出跳转表的。
+很直白，
+也很清爽。
 
 ```c
   // Load the specific registers
@@ -607,15 +756,16 @@ Here is the code to generate the jump table. Nice and easy.
 }
 ```
 
-Finally, load the `%rax` register with the switch
-value, load `%rdx` with the label of the jump table
-and call the `switch` code.
+最后，
+把 `switch` 的值装入 `%rax`，
+再把跳转表标签地址装入 `%rdx`，
+然后跳到那段 `switch` 处理代码即可。
 
-## Testing The Code
+## 测试代码
 
-I've augmented our example with a loop so that all
-cases in the 'switch' statement get tested This is
-the file `tests/input74.c`:
+我把前面的例子又包了一层循环，
+这样 `switch` 里的所有分支都能被实际测试到。
+测试文件是 `tests/input74.c`：
 
 ```c
 #include <stdio.h>
@@ -638,7 +788,7 @@ int main() {
 }
 ```
 
-And here is the output from the program:
+程序输出如下：
 
 ```
 100
@@ -648,23 +798,29 @@ And here is the output from the program:
 100
 ```
 
-Note that the value 9 is not output, because we
-fall into the default case when we are doing case 3.
+注意并没有输出 9，
+因为执行到 `case 3` 时，
+流程会继续落入 `default` 分支。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We've just implemented our first really big new statement in
-our compiler, the 'switch' statement. As I've never done this
-before, I essentially followed the SubC implementation. There
-are many other, more efficient, ways to implement 'switch',
-but I applied the "KISS principle" here. That said, it still
-was quite a complicated implementation.
+我们刚刚实现了编译器里的第一个真正意义上“体量很大”的新语句：
+`switch`。
+由于我自己之前也没实现过这玩意，
+所以基本上是沿着 SubC 的做法一路跟下来的。
+当然，
+实现 `switch` 还有很多其它方式，
+也可能更高效；
+但我在这里还是坚持了 “KISS principle”。
+即便如此，
+这部分实现依旧相当复杂。
 
-If you are still reading at this point, congratulations on
-your staying power!
+如果你读到这里还没退出，
+那我得恭喜一下你的耐力。
 
-I'm starting to get annoyed with the compulsory '{' ... '}'
-around all of our compound statements.
-So, in the next part of our compiler writing journey, 
-I will bite the bullet and attempt to solve the "dangling else"
-problem. [Next step](../38_Dangling_Else/Readme.md)
+我现在已经开始有点受不了
+我们所有复合语句都必须强制写 `'{ ... }'`
+这件事了。
+所以在下一部分的编译器编写之旅里，
+我会硬着头皮去尝试解决
+“dangling else” 问题。 [下一步](../38_Dangling_Else/Readme.md)
