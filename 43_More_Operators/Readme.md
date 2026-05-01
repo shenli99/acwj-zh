@@ -1,27 +1,39 @@
-# Part 43: Bugfixes and More Operators
+# 第 43 部分：Bug 修复与更多运算符
 
-I've started to pass some of the source code of our compiler as input to itself,
-as this is how we are going to get it to eventually compile itself. The
-first big hurdle is to get the compiler to parse and recognise its source code.
-The second big hurdle will be to get the compiler to generate correct, working,
-code from its source code.
+我已经开始把编译器自己的部分源码
+拿来作为它自己的输入了，
+因为这正是它最终走向“自举编译自己”的必经之路。
+第一道大坎，
+是让编译器先能正确解析并识别它自己的源码。
+第二道大坎，
+则是让编译器根据这份源码
+生成出正确、可运行的代码。
 
-This is also the first time that the compiler has been given some substantial
-input to chew on, and it's going to reveal a bunch of bugs, misfeatures and
-missing features.
+这也是第一次，
+我们的编译器被喂进了一些真正有分量的输入。
+而这势必会暴露出一堆 bug、奇怪行为和缺失特性。
 
-## Bugfixes
+## Bug 修复
 
-I started with `cwj -S defs.h` and found several header files missing. For now
-they exist but are empty. With these in place, the compiler crashes with a
-segfault. I had a few pointers which should be initialised to NULL and places
-where I wasn't checking for a NULL pointer.
+我先从 `cwj -S defs.h` 开始，
+结果发现少了好几个头文件。
+目前我先把这些头文件建出来了，
+虽然内容还是空的。
+在这些文件都补齐之后，
+编译器又会因为段错误（segfault）崩掉。
+排查后发现，
+有几处指针本来就应该初始化为 `NULL`，
+以及有些地方我压根没检查 `NULL` 指针。
 
-## Missing Features
+## 缺失特性
 
-Next up, I hit `enum { NOREG = -1 ...` in `defs.h` and realised that the
-scanner wasn't dealing with integer literals which start with a minus sign.
-So I've added this code to `scan()` in `scan.c`:
+接着，
+我又在 `defs.h` 里撞上了
+`enum { NOREG = -1 ...`
+这样的代码，
+这才意识到：
+扫描器还不会处理“以减号开头的整数字面量”。
+所以我在 `scan.c` 的 `scan()` 中加入了这段代码：
 
 ```c
     case '-':
@@ -38,24 +50,46 @@ So I've added this code to `scan()` in `scan.c`:
       }
 ```
 
-If a '-' is followed by a digit, scan in the integer literal and negate its
-value. At first I was worried that the expression `1 - 1` would be treated
-as the two tokens '1', 'int literal -1', but I forgot that `next()` doesn't
-skip the space. So, by having a space between the '-' and the '1', the
-expression `1 - 1` is correctly parsed as '1', '-', '1'.
+如果 `'-'` 后面紧跟的是数字，
+那就直接把整个整数字面量扫出来，
+再把它的值取负。
+起初我还担心
+表达式 `1 - 1`
+会不会被错误拆成两个 token：
+`'1'` 和 `'整数字面量 -1'`。
+但后来我想起来，
+`next()` 并不会跳过空格。
+所以只要在 `'-'` 和 `'1'` 之间存在空格，
+表达式 `1 - 1`
+依旧会被正确解析成
+`'1'`、`'-'`、`'1'`。
 
-However, as [Luke Gruber](https://github.com/luke-gru) has pointed out,
-this also means that the input `1-1` **is** treated as `1 -1` instead of
-`1 - 1`. In other words, the scanner is too greedy and forces `-1` to
-always be treated as a T_INTLIT when sometimes it shouldn't be. I'm going
-to leave this for now, as we can work around it when writing our source
-code. Obviously, in a production compiler this would have to be fixed.
+不过，
+[Luke Gruber](https://github.com/luke-gru) 指出，
+这也同时意味着：
+输入 `1-1`
+**确实会** 被当作 `1 -1`，
+而不是 `1 - 1`。
+也就是说，
+当前扫描器贪婪过头了，
+把 `-1`
+一律强制看成 `T_INTLIT`，
+但有些场景里它其实不该这样。
+这个问题我现在先放着不管，
+因为在编写源码时
+我们可以先通过空格绕过去。
+当然，
+如果这是一门真正的生产级编译器，
+那这个问题迟早必须修。
 
-## Misfeatures
+## 奇怪行为
 
-In the AST node and symbol table node structures, I've been using unions to
-try and keep the size of each node down. I guess I'm a bit old school and
-I worry about wasting memory. An example is the AST node structure:
+在 AST 节点结构和符号表节点结构里，
+我一直在用 `union`
+来尽量压缩每个节点的体积。
+我大概算是有点老派，
+会本能地担心内存浪费。
+例如 AST 节点结构里就有这样的设计：
 
 ```c
 struct ASTnode {
@@ -68,10 +102,13 @@ struct ASTnode {
 };
 ```
 
-But the compiler isn't able to parse and work with a union inside a struct,
-and especially an unnamed union inside a struct. I could add this functionality,
-but it will be easier to redo the two structs where I do this. So, I've
-made these changes:
+但问题是：
+当前编译器还无法正确解析“struct 里的 union”，
+更别说“struct 里匿名 union”了。
+我当然可以继续把这项能力补进编译器，
+但眼下更省事的办法，
+是直接把那两个使用 union 的结构改掉。
+于是我做了下面这些修改：
 
 ```c
 // Symbol table structure
@@ -93,54 +130,83 @@ struct ASTnode {
 };
 ```
 
-This way, I still have two named fields sharing the same location in each
-struct, but the compiler will see only the one field name in each struct.
-I've given each `#define` a different prefix to prevent pollution of the
-global namespace.
+这样一来，
+我依然保留了“两种命名共用同一块字段”的效果，
+但对编译器来说，
+它在每个结构里只会真正看到一个字段名。
+同时我也刻意给每个 `#define`
+都加了不同前缀，
+以减少对全局命名空间的污染。
 
-A consequence of this is that I've had to rename the `endlabel`, `posn`,
-`intvalue` and `size` fields across half a dozen source files. C'est la vie.
+这个改动的连锁反应就是：
+我不得不在半打源文件里，
+把 `endlabel`、`posn`、`intvalue` 和 `size`
+这些字段名全都改一遍。
+生活就是这样。
 
-So now the compiler, when doing `cwj -S misc.c` gets up to:
+于是现在编译器在执行 `cwj -S misc.c` 时，
+已经能跑到这里了：
 
 ```
 Expected:] on line 16 of data.h, where the line is
 extern char Text[TEXTLEN + 1];
 ```
 
-This fails as the compiler as it stands does not parse expressions in a
-global variable declaration. I'm going to have to rethink this.
+这里会失败，
+因为当前版本的编译器
+还不会在“全局变量声明”里解析表达式。
+看来我得重新思考一下这一块。
 
-My thoughts so far are to use `binexpr()` to parse the expression,
-and to add some optimisation code to perform
-[constant folding](https://en.wikipedia.org/wiki/Constant_folding)
-on the resulting AST tree. This should result in a single A_INTLIT node
-from which I can extract the literal value. I could even let `binexpr()`
-parse any casts, e.g.
+我目前的想法是：
+用 `binexpr()` 先把这个表达式解析出来，
+然后再加入一段优化代码，
+对生成出的 AST 做
+[常量折叠（constant folding）](https://en.wikipedia.org/wiki/Constant_folding)。
+如果顺利，
+最后就应该能得到一个单独的 `A_INTLIT` 节点，
+那我就可以从中直接提取字面量值。
+这样一来，
+`binexpr()` 甚至还可以顺带处理 cast，
+例如：
 
 ```c
  char x= (char)('a' + 1024);
 ```
 
-Anyway, that's something for the future. I was going to do constant folding
-at some point, but I thought it would be further down the track.
+总之，
+这是后面的事。
+我本来就打算在某个阶段加入常量折叠，
+只是没想到它会这么早就被推上日程。
 
-What I will do in this part of the journey is add some more operators:
-specifically, '+=', '-=', '*=' and '/='. We currently use the first two operators
-in the compiler's source code.
+而在这一部分里，
+我真正打算先做的是：
+再补一些运算符。
+具体来说，
+是 `'+='`、`'-='`、`'*='` 和 `'/='`。
+因为在编译器自己的源码里，
+前两个运算符已经开始被用了。
 
-## New Tokens, Scanning and Parsing
+## 新 token、扫描与解析
 
-Adding new keywords to our compiler is easy: a new token and a change to the
-scanner. Adding new operators is much harder as we have to:
+给编译器加新关键字其实很简单：
+新增一个 token，
+再改一下扫描器就行。
+但加新运算符要麻烦得多，
+因为我们还得同时处理：
 
-  + align the token with the AST operation
-  + deal with precedence and associativity.
+  + token 与 AST 操作之间的对齐
+  + 优先级与结合性
 
-We are adding four operators: '+=', '-=', '*=' and '/='. They have matching
-tokens: T_ASPLUS, T_ASMINUS, T_ASSTAR and T_ASSLASH. These have
-corresponding AST operations: A_ASPLUS, A_ASMINUS, A_ASSTAR, A_ASSLASH. The AST operations **must** have the same enum value as the tokens
-because of this function in `expr.c`:
+这次要加入四个运算符：
+`'+='`、`'-='`、`'*='` 和 `'/='`。
+对应的 token 分别是：
+`T_ASPLUS`、`T_ASMINUS`、`T_ASSTAR`、`T_ASSLASH`。
+对应的 AST 操作则是：
+`A_ASPLUS`、`A_ASMINUS`、`A_ASSTAR`、`A_ASSLASH`。
+
+这里 AST 操作的 enum 值
+**必须** 和 token 的 enum 值完全一致，
+原因是 `expr.c` 里有下面这个函数：
 
 ```c
 // Convert a binary operator token into a binary AST operation.
@@ -153,10 +219,12 @@ static int binastop(int tokentype) {
 }
 ```
 
-We also need to configure the precedence of the new operators.
-According to [this list of C operators](https://en.cppreference.com/w/c/language/operator_precedence), these new operators have the same precedence as
-our existing assignment operator, so we can modify the `OpPrec[]` table in
-`expr.c` as follows:
+我们还得为这些新运算符配置优先级。
+根据
+[这份 C 运算符列表](https://en.cppreference.com/w/c/language/operator_precedence)，
+这些新运算符和现有赋值运算符拥有相同优先级。
+所以 `expr.c` 里的 `OpPrec[]` 表
+现在可以改成这样：
 
 ```c
 // Operator precedence for each token. Must
@@ -169,8 +237,11 @@ static int OpPrec[] = {
 };
 ```
 
-But that list of C operators also notes that the assignment operators are
-*right_associative*. This means, for example, that:
+不过那份 C 运算符列表同时还指出：
+这些赋值运算符是
+*右结合（right-associative）* 的。
+这意味着，
+例如：
 
 ```c
    a += b + c;          // needs to be parsed as
@@ -178,7 +249,8 @@ But that list of C operators also notes that the assignment operators are
    (a += b) + c;
 ```
 
-So we also need to update this function in `expr.c` to do this:
+所以我们还得修改 `expr.c`
+里的这个函数：
 
 ```c
 // Return true if a token is right-associative,
@@ -190,15 +262,18 @@ static int rightassoc(int tokentype) {
 }
 ```
 
-Fortunately, these are the only changes we need to make to our scanner
-and expression parser: the Pratt parser for binary expressions is now
-primed to deal with the new operators.
+好在，
+对扫描器和表达式解析器来说，
+到这里就够了：
+Pratt parser 现在已经具备了处理这些新运算符的全部前置条件。
 
-## Dealing with the AST Tree
+## 处理 AST 语法树
 
-Now that we can parse expressions with the four new operators, we need to
-deal with the AST that is created for each expression. One thing we need to
-do is dump the AST tree. So, in `dumpAST()` in `tree.c`, I added this code:
+既然现在已经能解析这四个新运算符了，
+接下来就得处理为它们生成出来的 AST。
+首先有一件事必须做：
+让 `dumpAST()` 能把这些节点正确打印出来。
+所以我在 `tree.c` 的 `dumpAST()` 中加入了下面这段：
 
 ```c
     case A_ASPLUS:
@@ -211,7 +286,9 @@ do is dump the AST tree. So, in `dumpAST()` in `tree.c`, I added this code:
       fprintf(stdout, "A_ASSLASH\n"); return;
 ```
 
-Now when I run `cwj -T input.c` with the expression `a += b + c`, I see:
+现在如果我运行 `cwj -T input.c`，
+里面带着表达式 `a += b + c`，
+就会看到：
 
 ```
   A_IDENT rval a
@@ -221,7 +298,8 @@ Now when I run `cwj -T input.c` with the expression `a += b + c`, I see:
 A_ASPLUS
 ```
 
-which we can redraw as:
+把它重新画出来，
+大概就是这样：
 
 ```
           A_ASPLUS
@@ -232,13 +310,18 @@ which we can redraw as:
              rval b  rval c
 ```
 
-## Generating the Assembly For the Operators
+## 为这些运算符生成汇编
 
-Well, in `gen.c` we already walk the AST tree and deal with A_ADD and A_ASSIGN.
-Is there a way to use the existing code to make implementing the new A_ASPLUS
-operator a bit easier? Yes!
+接下来在 `gen.c` 中，
+我们原本就已经会遍历 AST，
+并处理 `A_ADD` 和 `A_ASSIGN`。
+那有没有办法复用现有代码，
+让新增 `A_ASPLUS`
+这件事更轻松一点？
+有。
 
-We can rewrite the above AST tree to look like this:
+我们可以把上面的 AST
+在逻辑上改写成这样：
 
 ```
                 A_ASSIGN
@@ -251,10 +334,13 @@ We can rewrite the above AST tree to look like this:
              rval b   rval c
 ```
 
-Now, we don't *have* to rewrite the tree as long as we perform the tree walking
-*as if* the tree had been rewritten like this.
+当然，
+我们并不一定真的要把树改写成这个结构，
+只要在遍历时
+*按这棵改写后的树去思考* 就够了。
 
-So in `genAST()`, we have:
+所以在 `genAST()` 中，
+我们本来就有下面这段现成逻辑：
 
 ```c
 int genAST(...) {
@@ -267,13 +353,24 @@ int genAST(...) {
 }
 ```
 
-From the perspective of doing the work for the A_ASPLUS node, we have
-evaluated the left-hand child (e.g. `a`'s value) and the right-hand child
-(e.g. `b+c`) and we have the values in two registers. If this was an A_ADD
-operation, we would `cgadd(leftreg, rightreg)` at this point. Well, it is
-an A_ADD operation on these children, then followed by an assignment back into `a`.
+从 `A_ASPLUS` 的视角看，
+这意味着：
+左子树
+（比如 `a` 的值）
+已经算完了，
+右子树
+（比如 `b+c`）
+也已经算完了，
+而且它们都已经落在寄存器里。
 
-So, the `genAST()` code now has this:
+如果当前节点本来只是个 `A_ADD`，
+那现在就会去执行 `cgadd(leftreg, rightreg)`。
+而实际上，
+这里本质上也确实是：
+先做一次 `A_ADD`，
+再把结果赋值回 `a`。
+
+于是 `genAST()` 里现在多了这段代码：
 
 ```c
   switch (n->op) {
@@ -311,23 +408,35 @@ So, the `genAST()` code now has this:
   }
 ```
 
-In other words, for each new operator, we perform the correct maths operation
-on the children. But before we can drop into the A_ASSIGN we have to move
-the left-child pointer over to be the right child. Why? Because the A_ASSIGN
-code expects the destination to be the right child:
+换句话说，
+对于每个新运算符，
+我们先在两个子节点的值上执行正确的数学操作。
+但在落入 `A_ASSIGN`
+那段现成逻辑之前，
+还得先把“左子节点指针”
+挪过去充当右子节点。
+为什么？
+因为 `A_ASSIGN`
+那段代码默认认为“赋值目标”是在右子节点里：
 
 ```c
       return (cgstorlocal(leftreg, n->right->sym));
 ```
 
-And that's it. We were lucky to have code which we could adapt to add in these four new
-operators. There are more assignment operators which I haven't implemented:
-'%=', '<=', '>>=', '&=', '^=' and '|='. They should also be as easy to add
-as the four we just added.
+就这样。
+这次我们算是撞上了比较幸运的情况：
+现有代码正好能被稍微改造一下，
+就支持这四个新运算符。
 
-## Example Code
+当然，
+还有一些赋值运算符我还没实现：
+`'%='`、`'<<='`、`'>>='`、`'&='`、`'^='` 和 `'|='`。
+不过照目前这个模式来看，
+它们应该也会一样好加。
 
-The `tests/input110.c` program is our testing program:
+## 示例代码
+
+测试程序是 `tests/input110.c`：
 
 ```c
 #include <stdio.h>
@@ -344,7 +453,7 @@ int main() {
 }
 ```
 
-and produces these results:
+它会输出：
 
 ```
 18
@@ -353,12 +462,18 @@ and produces these results:
 5
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We've added some more operators, and the hardest part really was aligning all
-the tokens, the AST operators and setting the precedence levels and
-right-associativity. After that, we could reuse some of the code generation
-code in `genAST()` to make our lives a bit easier.
+我们又补上了一批运算符。
+而这里真正最难的部分，
+其实是把 token、AST 操作、
+优先级和右结合关系
+全部对齐好。
+一旦这些东西理顺之后，
+我们就能复用 `genAST()`
+里已有的一部分代码，
+让实现轻松不少。
 
-In the next part of our compiler writing journey, it looks like I'll be adding
-constant folding to the compiler. [Next step](../44_Fold_Optimisation/Readme.md)
+在编译器编写之旅的下一部分中，
+看起来我就要把常量折叠
+加入编译器了。 [下一步](../44_Fold_Optimisation/Readme.md)

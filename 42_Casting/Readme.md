@@ -1,21 +1,29 @@
-# Part 42: Type Casting and NULL
+# 第 42 部分：类型转换（type casting）与 `NULL`
 
-In this part of our compiler writing journey, I've implemented type casting.
-I thought this would allow me to do:
+在编译器编写之旅的这一部分里，
+我实现了类型转换（type casting）。
+我原本以为这会让我能够直接写出：
 
 ```c
 #define NULL (void *)0
 ```
 
-but I hadn't done enough to get `void *` to work properly. So I've added
-type casting and also got `void *` to work.
+但后来才发现，
+我之前还没有把 `void *`
+真正支持到可用程度。
+所以这一部分里，
+我不仅加入了类型转换，
+也顺手把 `void *` 支持补到了能正常工作的状态。
 
-## What is Type Casting?
+## 什么是类型转换？
 
-Type casting is where you forcibly change the type of an expression to
-be something else. Common reasons are to narrow an integer value down
-to a smaller range type, or to assign a pointer from one type into
-a pointer storage of another type, e.g.
+类型转换就是：
+强行把某个表达式的类型改成另一种类型。
+常见原因包括：
+把一个整数值缩窄到更小的类型范围，
+或者把某种指针类型
+赋给另一种指针类型的存储位置，
+例如：
 
 ```c
   int   x= 65535;
@@ -25,16 +33,19 @@ a pointer storage of another type, e.g.
   long *z= (void *)0;   // z is a NULL pointer, not pointing at anything
 ```
 
-Notice above that I've used the casts in assignment statements. For
-expressions within functions, we will need to add an A_CAST node to our
-AST tree to say "cast the original expression type to this new type".
+注意上面这些 cast
+都是出现在赋值语句里的。
+对函数内部的表达式来说，
+我们需要在 AST 中加入一个 `A_CAST` 节点，
+表示“把原表达式类型转换成这个新类型”。
 
-For global variable assignments, we will need to modify the assignment
-parser to allow a cast to come before the literal value.
+而对全局变量赋值来说，
+我们则需要修改赋值解析逻辑，
+让它能接受“字面量之前先来一个 cast”。
 
-## A New Function, `parse_cast()`
+## 新函数：`parse_cast()`
 
-I've added this new function in `decl.c`:
+我在 `decl.c` 中新增了这个函数：
 
 ```c
 // Parse a type which appears inside a cast
@@ -52,18 +63,25 @@ int parse_cast(void) {
 }
 ```
 
-The parsing of the surrounding '(' ... ')' is done elsewhere. We get the
-type identifier and the following '*' tokens to get the type of the cast.
-Then we prevent casts to structs, unions and to `void`.
+外围那层 `'(' ... ')'`
+的解析是在别处完成的。
+这里我们先取出类型标识符，
+再处理后面的 `'*'`，
+从而得到 cast 目标类型。
+然后再阻止把值 cast 成
+struct、union 或 `void`。
 
-We need a function to do this as we have to do it in expressions and also
-in global variable assignments. I didn't want any
-[DRY code](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself).
+之所以要专门抽出这个函数，
+是因为表达式解析和全局变量赋值解析
+都会用到它。
+我不想写出任何
+[DRY 反例代码](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself)。
 
-## Cast Parsing in Expressions
+## 表达式中的 cast 解析
 
-We already parse parentheses in our expression code, so we will need to
-modify this. In `primary()` in `expr.c`, we now do this:
+我们的表达式代码原本就已经会解析括号，
+所以这里必须在原有基础上修改。
+现在 `expr.c` 中的 `primary()` 会这样处理：
 
 ```c
 static struct ASTnode *primary(void) {
@@ -112,34 +130,48 @@ static struct ASTnode *primary(void) {
 }
 ```
 
-That's a lot to digest, so let's go through it in stages. All of the cases
-ensure that we have a type identifier after the '(' token. We call `parse_cast()`
-to get the cast type and parse the ')' token.
+这段代码信息量不小，
+所以分段解释。
+上面这些 `case`
+会先确保 `'('` 后面出现的是一个类型标识符。
+然后调用 `parse_cast()`
+取出 cast 类型，
+并解析后面的 `')'`。
 
-We don't have an AST tree to return yet because we don't know which expression
-we are casting. So we fall through to the default case where the next expression
-is parsed.
+此时我们还没有能返回的 AST，
+因为还不知道“到底要把哪个表达式 cast”。
+所以流程会落到 `default` 分支，
+在那里继续解析后续表达式。
 
-At this point either `type` is still zero (no cast) or non-zero (there was a cast).
-If no cast, the right parenthesis has to be skipped and we can simply return
-the expression in parentheses.
+等到这里时，
+`type` 要么仍然是 0
+（说明没有 cast），
+要么已经是非零值
+（说明前面确实出现了 cast）。
+如果没有 cast，
+那就跳过右括号，
+直接返回括号里的表达式。
 
-If there was a cast, we build an A_CAST node with the new `type` and with the
-following expression as the child.
+如果存在 cast，
+那就创建一个 `A_CAST` 节点，
+把新的 `type` 记录进去，
+并把后面的表达式挂成它的子节点。
 
-## Generating the Assembly Code for a Cast
+## 为 cast 生成汇编代码
 
-Well, we are lucky because the expression's value will be stored in a register.
-So if we do:
+这一步我们其实挺幸运，
+因为表达式的值本来就已经会保存在寄存器里。
+所以如果我们写：
 
 ```c
   int   x= 65535;
   char  y= (char)x;     // y is now 255, the lower 8 bits
 ```
 
-then we can simply put the 65535 into a register. But when we
-save it to y, then the lvalue's type will be invoked to generate
-the correct code to save the right size:
+那完全可以先把 65535 放进某个寄存器。
+然后在把它存回 `y` 时，
+再由左值类型去决定“该按多大的宽度写回去”。
+所以最终汇编会像这样：
 
 ```
         movq    $65535, %r10            # Store 65535 in x
@@ -148,7 +180,8 @@ the correct code to save the right size:
         movb    %r10b, -8(%rbp)         # Store one byte into y
 ```
 
-So, in `genAST()` in `gen.c`, we have this code to deal with casting:
+因此在 `gen.c` 的 `genAST()` 中，
+我们只需要这样处理 cast：
 
 ```c
   ...
@@ -162,108 +195,58 @@ So, in `genAST()` in `gen.c`, we have this code to deal with casting:
   }
 ```
 
-## Casts in Global Assignments
+## 全局赋值中的 cast
 
-The above is fine when the variables are local variables,
-as the compiler does the above assignments as expressions.
-For global variables, we have to hand-parse the cast
-and apply it to a literal value that follows it.
+上面这些处理，
+对局部变量来说完全没问题，
+因为编译器本来就是把它们当作表达式来完成赋值的。
+但对全局变量来说，
+我们必须手工去解析 cast，
+再把它应用到后面的字面量值上。
 
-So, for example, in `scalar_declaration` in `decl.c` we need
-this code:
-
-```c
-    // Globals must be assigned a literal value
-    if (class == C_GLOBAL) {
-      // If there is a cast
-      if (Token.token == T_LPAREN) {
-        // Get the type in the cast
-        scan(&Token);
-        casttype= parse_cast();
-        rparen();
-
-        // Check that the two types are compatible. Change
-        // the new type so that the literal parse below works.
-        // A 'void *' casstype can be assigned to any pointer type.
-        if (casttype == type || (casttype== pointer_to(P_VOID) && ptrtype(type)))
-          type= P_NONE;
-        else
-          fatal("Type mismatch");
-      }
-
-      // Create one initial value for the variable and
-      // parse this value
-      sym->initlist= (int *)malloc(sizeof(int));
-      sym->initlist[0]= parse_literal(type);
-      scan(&Token);
-    }
-```
- 
-First of all, note that we set `type= P_NONE` when there is a cast,
-and we call `parse_literal()` with P_NONE when there is a cast. Why?
-Because this function used to required that the literal being parsed
-was exactly the type which was the argument, i.e. a string literal
-had to be of type `char *`, a `char` had to be matched by a literal
-in the range 0 ... 255 etc.
-
-Now that we have a cast, we should be able to accept:
-
-```c
-  char a= (char)65536;
-```
-
-So the code in `parse_literal()` in `decl.c` now does this:
+在 `parse_literal()` 中，
+我现在会这样做：
 
 ```c
 int parse_literal(int type) {
-
-  // We have a string literal. Store in memory and return the label
-  if (Token.token == T_STRLIT) {
-    if (type == pointer_to(P_CHAR) || type == P_NONE)
-    return(genglobstr(Text));
+  int value, type2;
+  ...
+  // If the literal has a cast in front, parse
+  // the cast type and skip the right parenthesis
+  if (Token.token == T_LPAREN) {
+    scan(&Token);
+    type2= parse_cast();
+    if (type != type2)
+      fatal("Type mismatch between variable and cast");
+    rparen();
   }
-
-  // We have an integer literal. Do some range checking.
-  if (Token.token == T_INTLIT) {
-    switch(type) {
-      case P_CHAR: if (Token.intvalue < 0 || Token.intvalue > 255)
-                     fatal("Integer literal value too big for char type");
-      case P_NONE:
-      case P_INT:
-      case P_LONG: break;
-      default: fatal("Type mismatch: integer literal vs. variable");
-    }
-  } else
-    fatal("Expecting an integer literal value");
-  return(Token.intvalue);
-}
 ```
 
-and the P_NONE is used to relax the type restrictions.
+也就是说，
+如果字面量前面带着 cast，
+我们就先把 cast 类型解析出来，
+再检查它是否和目标变量类型一致。
+如果不一致就报错。
 
-## Dealing with `void *`
-
-A `void *` pointer is one that can be used in place of any other
-pointer type. So we have to implement this.
-
-We already did this for global variable assignments above:
-
-```c
-   if (casttype == type || (casttype== pointer_to(P_VOID) && ptrtype(type)))
-```
-
-i.e. if the types are equal, or if a `void *` pointer is being assigned
-to a pointer. This allows the following global assignment:
+现在，
+我们终于可以支持下面这样的代码了：
 
 ```c
   char *str= (void *)0;
 ```
 
-even though `str` is of type `char *` and not `void *`.
+尽管 `str` 的类型是 `char *`，
+而不是 `void *`。
 
-Now we need to deal with `void *` (and other pointer/pointer operations)
-in expressions. To do this, I had to change `modify_type()` in `types.c`.
-As a refresher, here is what this function does:
+## 让 `void *` 真正工作起来
+
+现在我们得开始处理：
+`void *` 以及其它指针 / 指针之间的操作，
+在表达式里到底该如何兼容。
+
+为此，
+我不得不改动 `types.c` 里的 `modify_type()`。
+先回顾一下它是干什么的：
 
 ```c
 // Given an AST tree and a type which we want it to become,
@@ -275,24 +258,31 @@ As a refresher, here is what this function does:
 struct ASTnode *modify_type(struct ASTnode *tree, int rtype, int op);
 ```
 
-This is the code that widens values, e.g. `int x= 'Q';` to make `x` into
-a 32-bit value. We also use it for scaling: when we do:
+这段代码原本负责做“扩宽”处理，
+例如 `int x= 'Q';`
+这种情况，
+会把字符值扩成 32 位。
+我们也会用它来做“缩放（scaling）”，
+比如：
 
 ```c
   int x[4];
   int y= x[2];
 ```
 
-The "2" index is scaled by the size of `int` to be eight bytes offset from
-the base of the `x[]` array.
+这里索引值 `"2"`
+会按 `int` 的大小被缩放，
+从而变成相对于 `x[]` 数组基址偏移 8 个字节。
 
-So, inside a function, when we write:
+所以，
+在函数内部写下：
 
 ```c
   char *str= (void *)0;
 ```
 
-we get the AST tree:
+时，
+我们会得到下面这棵 AST：
 
 ```
           A_ASSIGN
@@ -303,10 +293,12 @@ we get the AST tree:
          0
 ```
   
-the type of the left-hand `tree` will be `void *` and the `rtype` will be
-`char *`. We had better ensure that the operation can be performed.
+此时左边这棵 `tree` 的类型是 `void *`，
+而 `rtype` 会是 `char *`。
+所以我们最好确保：
+这种操作是被允许的。
 
-I've changed `modify_type()` to do this for pointers:
+我现在把 `modify_type()` 改成了这样来处理指针：
 
 ```c
   // For pointers
@@ -322,15 +314,26 @@ I've changed `modify_type()` to do this for pointers:
   }
 ```
 
-Now, pointer comparison is OK but other binary operations (e.g. addition) is bad.
-A "non-binary operation" means something like an assignment. We can definitely
-assign between two things of the same type. Now, we can also assign from a `void *`
-pointer to any pointer.
+这样一来，
+指针之间的比较是允许的，
+但其它二元运算
+（例如加法）
+仍然是不合法的。
 
-## Adding NULL
+这里所谓的“非二元操作”，
+指的就是赋值这一类场景。
+相同类型之间的赋值当然没问题。
+而现在，
+我们也允许把一个 `void *`
+指针赋给任意其它指针类型。
 
-Now that we can deal with `void *` pointers, we can add NULL to our include files.
-I've added this to both `stdio.h` and `stddef.h`:
+## 加入 `NULL`
+
+既然现在已经能正确处理 `void *` 指针了，
+那我们就终于可以把 `NULL`
+加到头文件里。
+我现在在 `stdio.h` 和 `stddef.h`
+里都加入了下面这段：
 
 ```c
 #ifndef NULL
@@ -338,24 +341,30 @@ I've added this to both `stdio.h` and `stddef.h`:
 #endif
 ```
 
-But there was one final wrinkle. When I tried this global declaration:
+不过这里还有最后一个小弯。
+当我试着写出下面这条全局声明时：
 
 ```c
 #include <stdio.h>
 char *str= NULL;
 ```
 
-I got this:
+结果得到的却是：
 
 ```
 str:
         .quad   L0
 ```
 
-because every initialisation value for a `char *` pointer is
-treated as a label number. So the "0" in the NULL was being turned
-into an "L0" label. We need to fix this. Now, in `cgglobsym()`
-in `cg.c`:
+原因在于：
+对 `char *` 指针来说，
+每个初始化值都会被当作“某个标签号”。
+于是 `NULL` 里的那个 `"0"`
+就被错误地翻译成了 `"L0"` 标签。
+这显然得修。
+
+所以现在在 `cg.c` 的 `cgglobsym()` 里，
+代码变成了这样：
 
 ```c
       case 8:
@@ -367,20 +376,28 @@ in `cg.c`:
           fprintf(Outfile, "\t.quad\t%d\n", initvalue);
 ```
 
-Yes it's ugly but it works!
+是的，
+这段处理看起来很丑，
+但它确实能工作！
 
-## Testing the Changes
+## 测试这些改动
 
-I won't go through all the tests themselves, but files
-`tests/input101.c` to `tests/input108.c` test the above
-functionality and also the error checking of the compiler.
+我就不把所有测试文件逐个展开了，
+不过 `tests/input101.c`
+到 `tests/input108.c`
+会一起覆盖上面的功能，
+以及编译器的相应错误检查逻辑。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I thought casting was going to be easy, and it was. What I didn't
-reckon with was the issues surrounding `void *`. I feel that I've
-covered most bases here but not all of them, so expect to see
-some `void *` edge cases that I haven't spotted yet.
+我原本以为 cast 会很简单，
+结果它本身确实不难。
+真正麻烦的是围绕 `void *`
+展开的那些兼容问题。
+我觉得自己大部分情况都已经处理到了，
+但多半还没有全部覆盖，
+所以后面大概率还会继续遇到一些
+我现在还没发现的 `void *` 边界情况。
 
-In the next part of our compiler writing journey, we'll add some missing
-operators. [Next step](../43_More_Operators/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会补上一些缺失的运算符。 [下一步](../43_More_Operators/Readme.md)
