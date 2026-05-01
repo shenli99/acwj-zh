@@ -1,27 +1,34 @@
-# Part 30: Designing Structs, Unions and Enums
+# 第 30 部分：设计结构体、联合体与枚举
 
-I'm going to sketch out my design ideas for implementing structs, unions and
-enums in ths part of our compiler writing journey. As with functions, it's
-going to take a number of following steps to get it all implemented.
+这一部分里，
+我会先把自己在编译器里实现 struct、union 和 enum 的设计思路勾勒出来。
+和函数支持一样，
+这件事也会拆成接下来的多个步骤逐步完成。
 
-I've also chosen to rewrite the symbol table from being a single array to being
-several singly-linked lists. I already mentioned my intention to do this: my
-ideas on how to implement the composite types made it important to rewrite the
-symbol table implementation at this point.
+我还决定顺手把符号表从“单个数组”改写成“若干条单向链表”。
+之前我就提过自己迟早会这么做；
+而当我开始思考如何实现这些复合类型（composite type）时，
+这一步重写已经变得相当必要了。
 
-Before we get into the code changes, let's look at what, exactly, are composite
-types.
+在进入代码改动之前，
+我们先看一下：
+到底什么叫复合类型。
 
-## Composite Types, Enums and Typedefs
+## 复合类型、枚举与 typedef
 
-In C, [structs](https://en.wikipedia.org/wiki/Struct_(C_programming_language))
-and [unions](https://en.wikipedia.org/wiki/Union_type#C/C++) are known
-as *composite types*. A struct or union variable can have many members
-contained within. The difference is that, in a struct, the members are
-guaranteed not to overlap in memory whereas, in a union, we desire that
-all the members share the same memory locations.
+在 C 里，
+[struct](https://en.wikipedia.org/wiki/Struct_(C_programming_language))
+和 [union](https://en.wikipedia.org/wiki/Union_type#C/C++)
+都被称为*复合类型（composite type）*。
+一个 struct 或 union 变量内部
+可以同时包含多个成员（member）。
+两者的区别在于：
+对于 struct，
+这些成员在内存中保证不会彼此重叠；
+而对于 union，
+我们反而希望所有成员共享同一片内存位置。
 
-An example of a struct type is:
+下面是一个 struct 类型的例子：
 
 ```c
 struct foo {
@@ -33,8 +40,9 @@ struct foo {
 struct foo fred;
 ```
 
-The variable `fred` is of type `struct foo`, and it has three members `a`, `b` and
-`c`. We can now do these three assignments to `fred`:
+变量 `fred` 的类型是 `struct foo`，
+它拥有三个成员 `a`、`b` 和 `c`。
+于是我们现在可以对 `fred` 做下面三次赋值：
 
 ```c
   fred.a= 4;
@@ -42,9 +50,10 @@ The variable `fred` is of type `struct foo`, and it has three members `a`, `b` a
   fred.c= 'x';
 ```
 
-and all three values are stored in the respective members in `fred`.
+这三个值都会分别存进 `fred` 中对应的成员里。
 
-On the other hand, here is an example of a union type:
+另一方面，
+下面是一个 union 类型的例子：
 
 ```c
 union bar {
@@ -56,31 +65,34 @@ union bar {
 union bar jane;
 ```
 
-If we perform these statements:
+如果我们执行下面这些语句：
 
 ```c
   jane.a= 5;
   printf("%d\n", jane.b);
 ```
 
-then the value 5 will be printed as the `a` and `b` members occupy the same
-memory location in the `jane` union.
+那么打印出来的会是 5，
+因为在 `jane` 这个 union 里，
+成员 `a` 和 `b` 占据的是同一块内存位置。
 
-### Enums
+### 枚举
 
-I'll talk about enums here even though they don't define a composite type like
-the structs and unions.
-In C, [enums](https://en.wikipedia.org/wiki/Enumerated_type#C) are essentially
-a way to give names to integer values. An enum represents a list of
-named integer values.
+虽然 enum 并不像 struct 和 union 那样定义一种复合类型，
+但我还是打算在这里一并讲掉。
+在 C 中，
+[enum](https://en.wikipedia.org/wiki/Enumerated_type#C)
+本质上是一种“给整型值起名字”的机制。
+一个 enum 代表的是一组带名字的整数值。
 
-As an example, we can define these new identifiers:
+例如，
+我们可以这样定义一批新的标识符：
 
 ```c
 enum { apple=1, banana, carrot, pear=10, peach, mango, papaya };
 ```
 
-We now have these named integer values:
+于是现在就有了这些具名整数值：
 
 |  Name  | Value |
 |:------:|:-----:|
@@ -92,53 +104,72 @@ We now have these named integer values:
 | mango  |  12   |
 | papaya |  13   |
 
-There are some interesting issues with enums that I didn't know, which I'll cover below.
+关于 enum，
+还有一些我以前并没认真想过、但实际挺有意思的问题，
+后面会专门讲。
 
-### Typedefs
+### Typedef
 
-I should also touch on typedefs at this point, even though I won't need to
-implement them to get our compiler to compile itself. A 
-[typedef](https://en.wikipedia.org/wiki/Typedef) is a way to give an existing
-type another name. It's often used to make naming structs and unions easier.
+这里我也顺手提一下 typedef，
+虽然为了让我们的编译器能够“自举编译自己”，
+暂时并不需要先把 typedef 做出来。
+[typedef](https://en.wikipedia.org/wiki/Typedef)
+的作用是：
+给一个已经存在的类型再起一个别名。
+它经常被拿来让 struct 和 union 的命名更方便。
 
-Using a previous example, we can write:
+沿用前面的例子，
+我们可以写：
 
 ```c
 typedef struct foo Husk;
 Husk kim;
 ```
 
-`kim` is of type `Husk` which is the same as saying that `kim` is of type `struct foo`.
+`kim` 的类型是 `Husk`，
+这和说 `kim` 的类型是 `struct foo` 完全等价。
 
-## Types versus Symbols?
+## 类型和符号到底是什么关系？
 
-So, if structs, unions and typedefs are new types, what have they got to do with
-the symbol table which holds variable and function definitions? And enums are
-just names for integer literals, again not variables or functions.
+既然 struct、union 和 typedef 都是在引入新类型，
+那它们跟“存放变量和函数定义的符号表”到底有什么关系？
+而 enum 看起来更只是“给整数字面量起名字”，
+也不像变量或函数。
 
-The thing is, all of these things have *names*: the name of the struct or union,
-the name of their members, the types of the members, the names of the enumerated
-values, and the names of the typedefs.
+关键在于，
+这些东西全都有*名字*：
+struct 或 union 本身的名字，
+它们成员的名字，
+成员的类型，
+枚举值的名字，
+以及 typedef 的名字。
 
-We need to store these names somewhere, and we need to be able to find them. For
-the struct/union members, we need to find their underlying types. For the enumerated
-names, we need to look up their integer literal values.
+我们必须把这些名字存到某个地方，
+而且还要能够查回它们。
+对 struct/union 成员来说，
+我们需要查出其底层类型；
+对枚举值名称来说，
+我们需要查出它对应的整数字面量值。
 
-This is why I'm going to use the symbol table to store all of these things. But,
-we need to break up the table into several specific lists, so that we can find
-particular things and avoid finding things that we don't want to find.
+这就是为什么我打算继续利用“符号表”来存这些东西。
+只不过，
+我们需要把这张表拆成几个更具体的链表，
+这样既能更快找到想找的东西，
+也能避免误命中不该找到的符号。
 
-## Redesigning the Symbol Table Structure
+## 重新设计符号表结构
 
-Let's have, to start with:
+先从下面这些链表开始：
 
- + a singly-linked list for the global variables and functions
- + a singly-linked list for the variables local to the current function
- + a singly-linked list for the parameters local to the current function
+ + 一条用于全局变量和函数的单向链表
+ + 一条用于当前函数局部变量的单向链表
+ + 一条用于当前函数局部参数的单向链表
 
-With the old array-based symbol table, we had to skip over the function parameters
-when we were searching for global variables and functions. So, let's also have a
-list in a separate direction for the parameters of a function:
+在原先基于数组的符号表里，
+搜索全局变量和函数时，
+我们不得不跳过函数参数。
+所以现在，
+还不如干脆再给函数参数单独走一条方向不同的链：
 
 ```c
 struct symtable {
@@ -150,8 +181,8 @@ struct symtable {
 };
 ```
 
-Let's have a look, graphically, how this will
-look for the following code fragment:
+我们来看一个图形化示意。
+假设有下面这段代码：
 
 ```c
   int a;
@@ -163,35 +194,45 @@ look for the following code fragment:
   }
 ```
 
-This will be stored in three symbol table lists like this:
+那么它会以三条符号表链表的形式存成这样：
 
 ![](Figs/newsymlists.png)
 
-Note that we have three list "heads" which point to the three lists.
-We can now walk the global symbol list and not have to skip over the
-parameters, as each function keeps its parameters on its own list.
+注意这里有三个链表“头指针”，
+分别指向三条链。
+这样我们遍历全局符号链表时，
+就再也不需要主动跳过参数了，
+因为每个函数自己的参数都放在它自己的参数链上。
 
-When it comes time to parse a function's body, we can point the parameter
-list at the function's parameter list. Then, as local variables get declared,
-they are simply appended to the local variable list.
+等到真正开始解析某个函数体时，
+我们只需要让“参数链表”指向这个函数自己的参数链。
+然后随着局部变量不断声明，
+它们就直接被追加到局部变量链表里。
 
-Then, once the function's body is parsed and its assembly code generated,
-we can set the parameter and local lists back to being empty without
-disturbing the parameter list in the globally-visible function.
-This is where I'm up to with the rewrite of the symbol table. But it doesn't
-show how we can implement structs, unions and enums.
+之后，
+当函数体解析完毕并且汇编代码已经生成出来时，
+我们只要把“参数链表”和“局部变量链表”重新置空即可；
+而对那个全局可见函数节点自己的参数链不会造成任何影响。
 
-## Interesting Issues and Considerations
+这就是目前我对“符号表改写”的整体进度。
+不过这还没有真正解释：
+struct、union 和 enum 该怎么依附到这套结构上。
 
-Before we do see how to augment the existing symbol table node, plus
-singly-linked lists, to support structs, unions and enums, we first have
-to consider some of their more interesting issues.
+## 一些有意思的问题与考虑
 
-### Unions
+在真正讨论“如何扩展现有符号表节点与单向链表来支持 struct、union、enum”之前，
+我们先得看看它们自身有哪些比较微妙的问题。
 
-We'll start with unions. Firstly, we can put a union into a struct.
-Secondly, the union doesn't need a name. Thirdly, a variable does not
-need to be declared in the struct to hold the union. As an example:
+### 联合体
+
+先从 union 开始。
+第一，
+union 可以嵌进 struct 中。
+第二，
+这个 union 本身甚至可以没有名字。
+第三，
+struct 内部也不一定要额外声明一个变量来承载这个 union。
+例如：
 
 ```c
 #include <stdio.h>
@@ -212,17 +253,23 @@ int main() {
 }
 ```
 
-We need to be able to support this. Anonymous unions (and structs) will
-be easy: we just leave the `name` in the symbol table node set to NULL.
-But there is no variable name for this union: I think we can implement this
-by having the struct's member name also set to NULL, i.e.
+这类情况我们必须支持。
+匿名 union（以及匿名 struct）其实不难：
+只要把符号表节点中的 `name` 设成 `NULL` 即可。
+但这里还存在另一个问题：
+这个 union 并没有对应的变量名。
+我觉得可以这样实现：
+把“这个 union 作为 struct 成员时的成员名”也同样设成 `NULL`，
+也就是这样：
 
 ![](Figs/structunion1.png)
 
-### Enums
+### 枚举
 
-I've used enums before but I haven't really thought about implementing them
-that much. So I wrote the following C program to see if I could "break" enums:
+虽然以前我用过 enum，
+但我其实从来没有认真想过“它该怎么实现”。
+于是我专门写了下面这个 C 程序，
+想看看能不能把 enum “玩坏”：
 
 ```c
 #include <stdio.h>
@@ -245,19 +292,20 @@ int main() {
 }
 ```
 
-The questions are:
+它主要想回答这些问题：
 
- + Can we redeclare an enum list with different elements, e.g. `enum fred` and
-   `enum fred`?
- + Can we declare a variable with the same name as an enum list, e.g. `fred`?
- + Can we declare a variable with the same name as an enum value, e.g. `mary`?
- + Can we reuse the name of an enum value from one enum list in another, e.g.
-   `dennis` and `dennis`?
- + Can we assign a value from one enum list to a variable declared to be
-   of a different enum list?
- + Can we assign bewteen variables declared to be of different enum lists?
+ + 我们能不能用不同元素列表重新声明同一个枚举名，
+   例如 `enum fred` 再来一个 `enum fred`？
+ + 能不能声明一个和枚举列表同名的变量，
+   例如 `fred`？
+ + 能不能声明一个和枚举值同名的变量，
+   例如 `mary`？
+ + 能不能在不同的枚举列表中重用同一个枚举值名字，
+   例如 `dennis` 和 `dennis`？
+ + 能不能把一个枚举列表里的值赋给另一个枚举列表类型的变量？
+ + 能不能在两个不同枚举类型的变量之间直接赋值？
 
-And here is what `gcc` produces as errors and warnings:
+下面是 `gcc` 给出的错误和警告：
 
 ```c
 z.c:4:5: error: ‘mary’ redeclared as different kind of symbol
@@ -281,37 +329,42 @@ z.c:2:25: note: previous definition of ‘dennis’ was here
                          ^~~~~~
 ```
 
-After modifying and compiling the above program a few times, the answers are:
+在反复修改并重新编译上面的程序几次之后，
+结论如下：
 
- + We can't redeclare `enum fred`. This seems to be the only place where
-   we need to remember the name of an enum list.
- + We can reuse the enum list identifier `fred` as a variable name.
- + We can't reuse the enum value identifier `mary` in another enum list,
-   nor as a variable name.
- + We can assign enum value anywhere: they seem to be treated simply as
-   names for literal integer values.
- + It also appears that we can replace `enum` and `enum X` as a type
-   with the word `int`.
+ + 我们不能重新声明 `enum fred`。
+   这似乎是唯一一个必须记住“枚举列表名”本身的地方。
+ + 我们可以把 `fred` 这个枚举列表标识符复用成变量名。
+ + 我们不能在另一个枚举列表里复用枚举值标识符 `mary`，
+   也不能把它拿来当变量名。
+ + 枚举值几乎可以到处赋值：
+   它们看起来本质上就只是具名整数字面量。
+ + 甚至好像可以把 `enum` 或 `enum X` 当类型的地方，
+   直接换成 `int`。
 
-## Design Considerations
+## 设计上的考虑
 
-OK, so I think we're at the point where we can start listing what we want:
+好，
+我觉得现在差不多可以开始列出真正需要支持的东西了：
 
- + a list of named and unnamed structs, with the names of the members in
-   each struct and the type details for each member. Also, we will need
-   the memory offset for the member from the "base" of the struct.
- + ditto for named and unnamed structs, although the offset will always be zero.
- + a list of enumerated list names and the actual enumeration names and their associated
-   values.
- + in the symbol table, we need the existing `type` information for non-composite
-   types, but we'll also need a pointer to the relevant composite type, if a
-   symbol is a struct or a union.
- + given that a struct can have a member which is a pointer to itself, we will
-   need to be able to point the member's type back to the same struct.
+ + 一张“具名或匿名 struct 列表”，
+   其中每个 struct 还要保存自己的成员名、
+   每个成员的类型信息，
+   以及该成员相对于 struct 基址的内存偏移
+ + union 也一样需要一张对应列表，
+   只不过它们所有成员的偏移永远都是 0
+ + 一张“枚举列表名与各枚举值及其整数值”的列表
+ + 对于普通符号表，
+   非复合类型仍然保留现有 `type` 信息；
+   但如果某个符号是 struct 或 union，
+   还必须额外有一个指针指向对应的复合类型定义
+ + 既然 struct 可以包含“指向自身的指针成员”，
+   那我们必须允许某个成员类型反过来再指回同一个 struct
 
-## Changes to the Symbol Table Node Structure
+## 符号表节点结构的改动
 
-Below, in bold, are my changes to the current singly-linked list symbol table node:
+下面是我对当前“单向链表版符号表节点”的改动，
+新增部分我在原文里用粗体标了出来：
 
 <pre>
 struct symtable {
@@ -335,130 +388,151 @@ struct symtable {
 };                              // union or enum
 </pre>
 
-Along with this new node structure, we will have six linked lists:
+配合这个新的节点结构，
+我们将拥有六条链表：
 
- + a singly-linked list for the global variables and functions
- + a singly-linked list for the variables local to the current function
- + a singly-linked list for the parameters local to the current function
- + a singly-linked list for the struct types that have been defined
- + a singly-linked list for the union types that have been defined
- + a singly-linked list for the enum names and enumerated values that have been defined
+ + 一条用于全局变量和函数的单向链表
+ + 一条用于当前函数局部变量的单向链表
+ + 一条用于当前函数局部参数的单向链表
+ + 一条用于已定义 struct 类型的单向链表
+ + 一条用于已定义 union 类型的单向链表
+ + 一条用于已定义的枚举名与枚举值的单向链表
 
-## The Use Cases for the New Symbol Table Node
+## 新符号表节点在各场景中的用法
 
-Let's look at how each field in the above struct will get used by the six lists
-I enumerated above.
+现在我们来看看，
+上面这个结构体里的每个字段，
+在前面列出的六条链表里会分别怎么用。
 
-### New Types
+### 新类型
 
-We will have two new types, P_STRUCT and P_UNION, which I'll describe below.
+我们会新增两种类型：`P_STRUCT` 和 `P_UNION`，
+后面马上会提到它们。
 
-### Global Variables and Functions, Parameter Variables, Local Variables
+### 全局变量与函数、参数变量、局部变量
 
- + *name*: name of the variable or function.
- + *type*: type of the variable, or the function's return value, plus the 4-bit
-   indirection level.
- + *ctype*: if the variable is a P_STRUCT or P_UNION, this field points at the
-   associated struct or union definition in the relevant singly-linked list.
- + *stype*: structural type of the variable or function: S_VARIABLE, S_FUNCTION or
-   S_ARRAY.
- + *class*: storage class for the variable: C_GLOBAL, C_LOCAL, or C_PARAM.
- + *size*: for variables, the total size in bytes. For arrays, the number of elements
-   in the array. We will use this to implement `sizeof()` later.
- + *endlabel*: for functions, the end label which we can `return` to.
- + *nelems*: for functions, the number of parameters.
- + *posn*: for local variables and parameters, the negative offset of the variable
-   from the stack base pointer.
- + *next*: the next symbol in this list.
- + *member*: for functions, a pointer to the first parameter's node. NULL for
-    variables.
+ + *name*：变量或函数名
+ + *type*：变量类型，或者函数返回值类型，再加 4 bit 的间接层级信息
+ + *ctype*：如果变量是 `P_STRUCT` 或 `P_UNION`，
+   这个字段指向对应 struct/union 的定义节点
+ + *stype*：变量或函数的结构类型，
+   即 `S_VARIABLE`、`S_FUNCTION` 或 `S_ARRAY`
+ + *class*：变量的存储类别，
+   即 `C_GLOBAL`、`C_LOCAL` 或 `C_PARAM`
+ + *size*：对普通变量来说是总字节大小；
+   对数组来说是元素个数。
+   后面实现 `sizeof()` 时会用到
+ + *endlabel*：对函数来说，
+   表示它的结束标签，`return` 会跳回这里
+ + *nelems*：对函数来说是参数个数
+ + *posn*：对局部变量和参数来说，
+   是该变量相对于栈基指针的负偏移
+ + *next*：此链表中的下一个符号
+ + *member*：对函数来说，
+   指向它第一个参数节点；变量则为 `NULL`
 
-### Struct Types
+### Struct 类型
 
- + *name*: name of the struct type, or NULL if it is anonymous.
- + *type*: always P_STRUCT, not really required.
- + *ctype*: unused.
- + *stype*: unused.
- + *class*: unused.
- + *size*: the total size of the struct in bytes, to be used by `sizeof()` later.
- + *nelems*: the number of members in the struct.
- + *next*: the next struct type that has been defined.
- + *member*: a pointer to the first struct member's node.
+ + *name*：struct 类型名；如果匿名则为 `NULL`
+ + *type*：永远是 `P_STRUCT`，其实不一定非要有
+ + *ctype*：未使用
+ + *stype*：未使用
+ + *class*：未使用
+ + *size*：整个 struct 的总字节大小，
+   后面实现 `sizeof()` 时会用到
+ + *nelems*：struct 的成员个数
+ + *next*：下一个已定义的 struct 类型
+ + *member*：指向该 struct 第一个成员节点
 
-### Union Types
+### Union 类型
 
- + *name*: name of the union type, or NULL if it is anonymous.
- + *type*: always P_UNION, not really required.
- + *ctype*: unused.
- + *stype*: unused.
- + *class*: unused.
- + *size*: the total size of the union in bytes, to be used by `sizeof()` later.
- + *nelems*: the number of members in the union.
- + *next*: the next union type that has been defined.
- + *member*: a pointer to the first union member's node.
+ + *name*：union 类型名；如果匿名则为 `NULL`
+ + *type*：永远是 `P_UNION`，其实不一定非要有
+ + *ctype*：未使用
+ + *stype*：未使用
+ + *class*：未使用
+ + *size*：整个 union 的总字节大小，
+   后面实现 `sizeof()` 时会用到
+ + *nelems*：union 的成员个数
+ + *next*：下一个已定义的 union 类型
+ + *member*：指向该 union 第一个成员节点
 
-### Struct and Union Members
+### Struct 与 Union 成员
 
-Each member is essentially a variable, so there is a strong similarity to normal
-variables.
- 
- + *name*: name of the member.
- + *type*: type of the variable plus the 4-bit indirection level.
- + *ctype*: if the member is a P_STRUCT or P_UNION, this field points at the
-   associated struct or union definition in the relevant singly-linked list.
- + *stype*: structural type of the member: S_VARIABLE or S_ARRAY.
- + *class*: unused.
- + *size*: for variables, the total size in bytes. For arrays, the number of elements
-   in the array. We will use this to implement `sizeof()` later.
- + *posn*: the positive offset of the member from the base of the struct/union.
- + *next*: the next member in the struct/union.
- + *member*: NULL.
+每个成员本质上都很像一个变量，
+因此和普通变量之间有大量相似之处。
 
-### Enum List Names and Values
+ + *name*：成员名
+ + *type*：成员类型，再加 4 bit 的间接层级信息
+ + *ctype*：如果成员类型是 `P_STRUCT` 或 `P_UNION`，
+   这个字段指向对应 struct/union 的定义节点
+ + *stype*：成员的结构类型，
+   即 `S_VARIABLE` 或 `S_ARRAY`
+ + *class*：未使用
+ + *size*：普通变量时是总字节大小；
+   数组时是元素个数。
+   后面实现 `sizeof()` 会用到
+ + *posn*：成员相对于 struct/union 基址的正偏移
+ + *next*：该 struct/union 中的下一个成员
+ + *member*：`NULL`
 
-I want to store all the symbols and implicit values below:
+### 枚举列表名与枚举值
+
+我想把下面这些符号和隐式值都存起来：
 
 ```c
   enum fred { chocolate, spinach, glue };
   enum amy  { garbage, dennis, flute, couch };
 ```
 
-We could just link `fred` then `amy`, and use the `member` field in `fred` for
-the `chocolate`, `spinach`, `glue` list. Ditto the `garbage` etc. list.
+一种做法当然是：
+只把 `fred` 再连到 `amy`，
+然后在 `fred` 的 `member` 字段里挂上
+`chocolate`、`spinach`、`glue` 那条链。
+`garbage` 那一组也是一样。
 
-However, we really only care about the `fred` and `amy` names to prevent them
-being reused as enum list names. What we really care about are the actual
-enumeration names and their values.
+不过实际上，
+我们真正只需要记住 `fred` 和 `amy` 这两个名字，
+用来防止它们再次被复用成新的枚举列表名。
+而真正重要的，
+其实是各个枚举值名称以及它们对应的整数值。
 
-Therefore I propose a couple of "dummy" type values: P_ENUMLIST and P_ENUMVAL.
-We then build just a single-dimensional list like this:
+因此我准备引入两个“哑类型”值：`P_ENUMLIST` 和 `P_ENUMVAL`。
+然后只构建一条一维链表：
 
 ```c
      fred  -> chocolate-> spinach ->   glue  ->    amy  -> garbage -> dennis -> ...
   P_ENUMLIST  P_ENUMVAL  P_ENUMVAL  P_ENUMVAL  P_ENUMLIST  P_ENUMVAL  P_ENUMVAL
 ```
 
-Thus, when we use the word `glue`, we only have to walk the one list. Otherwise,
-we'd have to find `fred`, walk `fred`'s member list, then the same for `amy`.
-I think the one list will be easier.
+这样一来，
+当我们要查找 `glue` 这个词时，
+只需要遍历这一条链。
+否则的话，
+我们就得先找到 `fred`，
+再遍历 `fred` 的成员链；
+然后遇到 `amy` 时还得再做一次。
+我觉得直接用一条链会更简单。
 
-## What Has Been Changed Already
+## 已经改动好的部分
 
-Up at the top of this document, I mentioned that I've already
-rewritten the symbol table from being a single array to being
-several singly-linked lists, with these new fields in the `struct symtable` node:
+在这篇文档最开始我提到过，
+我已经把符号表从单个数组重写成了若干条单向链表，
+同时在 `struct symtable` 节点里加入了这些字段：
 
 ```c
   struct symtable *next;        // Next symbol in one list
   struct symtable *member;      // First parameter of a function
 ```
 
-So, let's have a quick tour of the changes. Firstly, there are no functional
-changes whatsoever.
+所以接下来，
+我们快速看一圈这些已经落地的改动。
+先说明一下：
+这里还没有任何功能层面的新增。
 
-### Three Symbol Table Lists
+### 三条符号表链表
 
-We now have three symbol table lists in `data.h`:
+现在 `data.h` 中有三条符号表链表：
 
 ```c
 // Symbol table lists
@@ -467,8 +541,9 @@ struct symtable *Loclhead, *Locltail;   // Local variables
 struct symtable *Parmhead, *Parmtail;   // Local parameters
 ```
 
-and all of the functions in `sym.c` have been rewritten to use them. I have written
-a generic function to append to a list:
+而 `sym.c` 中所有相关函数都已经改写为使用它们。
+我还写了一个通用函数，
+用于把节点追加到某条链表末尾：
 
 ```c
 // Append a node to the singly-linked list pointed to by head or tail
@@ -487,12 +562,15 @@ void appendsym(struct symtable **head, struct symtable **tail,
 }
 ```
 
-There is now a function `newsym()` which is given all the field values of a
-symbol table node. It `malloc()`s a new node, fills it in and returns it. I
-won't give the code here.
+现在还有一个 `newsym()` 函数，
+它接收一个符号表节点所需的全部字段值，
+内部通过 `malloc()` 创建新节点、
+填好字段并返回。
+这里我就不贴代码了。
 
-For each list, there is a function to build and append a node to the list. One
-example is:
+针对每一条链表，
+都还有一个函数用来创建并追加节点。
+其中一个例子是：
 
 ```c
 // Add a symbol to the global symbol list
@@ -503,8 +581,10 @@ struct symtable *addglob(char *name, int type, int stype, int class, int size) {
 }
 ```
 
-There is a generic function to find a symbol in a list, where the `list` pointer
-is the head of the list:
+另外，
+我还写了一个通用查找函数，
+它可以在指定链表里搜索符号；
+这里的 `list` 参数就是链表头：
 
 ```c
 // Search for a symbol in a specific list.
@@ -517,33 +597,44 @@ static struct symtable *findsyminlist(char *s, struct symtable *list) {
 }
 ```
 
-and there are three list-specific `findXXX()` functions.
+然后在它之上，
+又有三个面向具体链表的 `findXXX()` 函数。
 
-There is a function, `findsymbol()`, that tries to find a symbol in a function's
-parameter list first, then the function's local variables, then finally global
-variables.
+现在还有一个 `findsymbol()`，
+它会先在函数参数链表里找，
+再找函数局部变量，
+最后才找全局变量。
 
-There is a function, `findlocl()`, that only searches a function's parameter
-list and local variables. We use this one when we are declaring local variables
-and need to prevent a redeclaration.
+此外还有一个 `findlocl()`，
+它只搜索函数参数和局部变量。
+我们在声明局部变量时会用它，
+避免重复声明。
 
-Finally, there is a function, `clear_symtable()`, to reset the head and tail of
-all three lists to NULL, i.e. to clear all three lists.
+最后还有 `clear_symtable()`，
+负责把这三条链表的头尾都重置成 `NULL`，
+也就是把三条链全部清空。
 
-### The Parameter and Local Lists
+### 参数链表与局部链表
 
-The global symbol lists is only cleared once each individual source code file is
-parsed. But we need to a) set up the parameter list, and b) clear the local symbol
-list, each time we start parsing the body of a new function.
+全局符号链表只会在“每个源文件解析完成之后”清空一次。
+但每当我们开始解析一个新函数的函数体时，
+就必须：
+a) 建立参数链表；
+b) 清空局部变量链表。
 
-So here is how it works. When we are parsing a parameter list in `param_declaration()`
-in `expr.c`, we call `var_declaration()` for each parameter. This creates a symbol
-table node and appends it to the parameter list, i.e. `Parmhead` and `Parmtail`.
-When `param_declaration()` returns, `Parmhead` points at the parameter list.
+它的工作方式如下。
+当我们在 `expr.c` 的 `param_declaration()` 中解析参数列表时，
+会为每个参数调用 `var_declaration()`。
+这会创建一个符号表节点，
+并把它追加到参数链表，
+也就是 `Parmhead` / `Parmtail`。
+等 `param_declaration()` 返回时，
+`Parmhead` 就指向这条参数链。
 
-Back in `function_declaration()` which is parsing the whole function (its name,
-parameter list *and* any function body), the parameter list is copied into the
-function's symbol table node:
+回到负责解析整个函数
+（函数名、参数列表以及函数体）
+的 `function_declaration()` 中，
+参数链会被存进该函数自己的符号节点：
 
 ```c
     newfuncsym->nelems = paramcnt;
@@ -553,51 +644,74 @@ function's symbol table node:
     Parmhead = Parmtail = NULL;
 ```
 
-We clear the parameter list by `NULL`ing `Parmhead` and `Parmtail`, as shown.
-This would mean that all these are no longer available to search for via the global parameter list.
+接着我们像上面这样，
+把 `Parmhead` 和 `Parmtail` 置为 `NULL`，
+相当于把“当前参数链表”清空。
+这样一来，
+这些参数就不再能通过全局参数链直接搜索到了。
 
-The solution is to set a global variable, `Functionid`, to the function's
-symbol table entry:
+解决办法是：
+再设置一个全局变量 `Functionid`，
+让它指向当前函数自己的符号表项：
 
 ```c
   Functionid = newfuncsym;
 ```
 
-So, when we call `compound_statement()` to parse the function's body,
-we still have the parameter list available through `Functionid->member` to
-do things like:
+于是当我们调用 `compound_statement()` 去解析函数体时，
+仍然可以通过 `Functionid->member`
+访问到参数链表，
+从而继续做下面这些事情：
 
- + prevent a local variable being declared that matches a parameter name
- + use a parameter's name as a normal local variable etc.
+ + 防止局部变量声明与参数重名
+ + 像使用普通局部变量一样使用参数名
 
-Eventually, `function_declaration()` returns the AST tree which covers the
-whole function back to `global_declarations()` which then passes it to
-`genAST()` in `gen.c` to generate the assembly code. And when `genAST()` returns,
-`global_declarations()` calls `freeloclsyms()` to clear the local and parameter
-lists and reset `Functionid` back to `NULL`.
+最终，
+`function_declaration()` 会返回一棵覆盖整个函数的 AST，
+交回给 `global_declarations()`；
+随后后者再把它传给 `gen.c` 中的 `genAST()` 来生成汇编代码。
+等 `genAST()` 返回之后，
+`global_declarations()` 会调用 `freeloclsyms()`，
+把局部变量链与参数链清空，
+并把 `Functionid` 重置回 `NULL`。
 
-### Other Changes of Note
+### 其他值得一提的改动
 
-Well, actually a heck of a lot of code had to be rewritten due to the
-change to several linked lists for the symbol table. I'm not going to
-go through the whole code base. But some things you can spot easily.
-For example, symbol nodes used to be referenced with code like `Symtable[n->id]`.
-This is now `n->sym`.
+说实话，
+因为符号表从数组变成了多条链表，
+整套代码其实有非常多地方都不得不跟着改写。
+我不会把整个代码库逐个走一遍。
+不过有些变化是一眼就能看出来的。
+例如以前引用符号节点时，
+代码常常写成 `Symtable[n->id]`；
+现在则变成了 `n->sym`。
 
-Also, a lot of the code in `cg.c` refers to symbol names, so you now see these as
-`n->sym->name`. Similarly, the code to dump the AST trees in `tree.c` now
-has a lot of `n->sym->name` in it.
+另外，
+`cg.c` 中很多地方都要引用符号名，
+所以你现在经常会看到 `n->sym->name` 这种写法。
+同样，
+`tree.c` 里打印 AST 的逻辑，
+现在也到处都是 `n->sym->name`。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-This part of our journey was part design and part reimplementation. We spent
-a lot of time working out what issue we will face when implementing structs,
-unions and enums. Then we redesigned the symbol table to support these
-new concepts. Finally, we rewrote  the symbol table into three linked lists
-(for now) in preparation for the implementation of these new concepts.
+这一部分里，
+一半是设计，
+一半是重实现。
+我们花了不少时间去理清：
+在实现 struct、union 和 enum 时，
+会碰到哪些问题。
+接着又重新设计了符号表，
+使其能承载这些新概念。
+最后，
+我们把符号表先改写成了三条链表
+（暂时先是三条），
+为后续实现这些新特性做准备。
 
-In the next part of our compiler writing journey, I'll probably implement
-the declaration of struct types, but not actually write the code for them to
-be used. I'll do that in the following part. With both of these done, I'll
-hopefully be able to implement unions in a third part. Then, enums in the
-fourth part. We'll see! [Next step](../31_Struct_Declarations/Readme.md)
+在编译器编写之旅的下一部分中，
+我大概率会先实现“struct 类型声明”本身，
+但还不会立刻让它们真的能被使用。
+那部分我准备放到再下一篇里。
+如果这两步顺利做完，
+我希望第三步就能把 union 加进来；
+再第四步实现 enum。走着看吧。 [下一步](../31_Struct_Declarations/Readme.md)
