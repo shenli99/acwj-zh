@@ -1,41 +1,59 @@
-# Part 46: Void Function Parameters and Scanning Changes
+# 第 46 部分：`void` 函数形参与扫描器改动
 
-In this part of our compiler writing journey, I've made several changes
-which involve the scanner and the parser.
+在编译器编写之旅的这一部分里，
+我做了几项改动，
+它们主要涉及扫描器和解析器。
 
-## Void Function Parameters
+## `void` 函数形参
 
-We start with this common C construct to indicate that a function has no
-parameters:
+先来看 C 里一个很常见的写法，
+用来表示某个函数没有参数：
 
 ```c
 int fred(void);         // Void means no parameters, but
 int fred();             // No parameters also means no parameters
 ```
 
-It does seem strange that we already have a way of indicating no parameters
-but, anyway, it's a common thing so we need to support it.
+确实有点奇怪：
+我们明明已经有一种“没有参数”的表示方式了，
+却还要再来一种。
+不过既然这是 C 里的常见写法，
+那我们就必须支持它。
 
-The problem is that, once we hit the left parenthesis, we fall into
-the `declaration_list()` function in `decl.c`. This has been set up to
-parse a type with a definite following identifier. It's not going to be easy
-to alter it to deal with a type and *no* identifier. So we need to go back
-to the `param_declaration_list()` function and parse the 'void' ')' tokens
-there.
+问题在于，
+一旦我们读到左括号，
+后面就会落入 `decl.c` 里的 `declaration_list()`。
+而这个函数的设计前提是：
+它要解析的是“某个类型，后面明确跟着一个标识符”。
+想把它改成既支持“有标识符”
+又支持“只有类型、没有标识符”，
+并不轻松。
+所以我们得回到 `param_declaration_list()`，
+在那一层专门处理 `'void' ')'` 这个组合。
 
-I already have a function in the scanner called `reject_token()` in
-`scan.c`. We should be able to scan a token, look at it, decide we don't
-want it, and reject it. Then, the next scanned token will be the one
-we reject.
+我在 `scan.c` 里原本已经有一个扫描器函数叫 `reject_token()`。
+理论上它应该能做到：
+先把某个 token 扫进来，
+看一眼，
+如果不想要它，
+就把它拒绝掉；
+这样下次真正扫描时，
+又还能重新读到它。
 
-I've never used this function and, as it turns out, it was broken. Anyway,
-I took a step back and decided that it would be easier to *peek* at the
-next token. If we decide we like it, we can scan it in as per normal. If
-we don't like it, we don't have to do anything: it will get scanned in
-on the next real token scan.
+不过我其实从来没真正用过这个函数，
+而事实证明它本来就是坏的。
+所以我退后一步想了想，
+觉得更简单的办法其实是：
+去 *peek* 下一枚 token。
+如果发现它符合我们的需求，
+再正式扫进来；
+如果不符合，
+那就什么都不做，
+等下一次真正扫描时再正常读它。
 
-Now, why do we need this? It's because our pseudo-code for dealing with
-'void' in the parameter list will be:
+那我们为什么需要这个能力？
+因为处理参数列表中 `'void'`
+的大致伪代码会是这样：
 
 ```
   parse the '('
@@ -48,30 +66,41 @@ Now, why do we need this? It's because our pseudo-code for dealing with
   so that 'void' is still the current token
 ```
 
-We need to do the peek because both of the following are legal:
+之所以必须 peek，
+是因为下面这两种写法都合法：
 
 ```c
 int fred(void);
 int jane(void *ptr, int x, int y);
 ```
 
-If we scan and parse the next token after 'void' and see it is the asterisk,
-then we have lost the 'void' token. When we then call `declaration_list()`,
-the first token it will see is the asterisk and it will get upset. Thus,
-we need the ability to peek beyond the current token while keeping the current
-token intact.
+如果我们在读到 `'void'` 之后，
+真的继续把它后面的 token
+正式扫进来并解析掉，
+结果发现它是星号 `'*'`，
+那此时 `'void'` 这个 token 就已经丢了。
+接下来一旦调用 `declaration_list()`，
+它看到的第一个 token 就会是 `'*'`，
+然后它就会非常不高兴。
 
-## New Scanner Code
+所以，
+我们需要一种能力：
+可以向前偷看当前 token 后面的内容，
+同时又不破坏当前 token 本身。
 
-In `data.h` we have a new token variable:
+## 新的扫描器代码
+
+现在在 `data.h` 中，
+我们有了一个新的 token 变量：
 
 ```c
 extern_ struct token Token;             // Last token scanned
 extern_ struct token Peektoken;         // A look-ahead token
 ```
 
-and `Peektoken.token` is intialised to zero by code in `main.c`. We modify
-the main `scan()` function in `scan.c` as follows:
+而 `Peektoken.token`
+会在 `main.c` 中被初始化为零。
+接着我们把 `scan.c` 中主 `scan()` 函数改成这样：
 
 ```c
 // Scan and return the next token found in the input.
@@ -91,14 +120,17 @@ int scan(struct token *t) {
 }
 ```
 
-If `Peektoken.token` remains zero, we get the next token. But once
-something is stored in `Peektoken`, then that will be the next token we
-return.
+如果 `Peektoken.token`
+仍然是零，
+那就照常去读取下一个 token。
+但只要有东西已经提前塞进了 `Peektoken`，
+那它就会成为下一次真正返回的 token。
 
-## Declaration Modifications
+## 声明解析上的修改
 
-Now that we can peek ahead at the next token, let's put it into action.
-We modify the code in `param_declaration_list()` as follows:
+既然现在已经能向前窥视下一个 token，
+那就把它用起来。
+我们对 `param_declaration_list()` 的代码做了如下修改：
 
 ```c
   // Loop getting any parameters
@@ -121,25 +153,42 @@ We modify the code in `param_declaration_list()` as follows:
   }
 ```
 
-Assume that we have scanned in the 'void'. We now `scan(&Peektoken);` to
-see what's up next without altering the current `Token`. If that's a
-right parenthesis, we can leave with `paramcnt` set to zero after skipping
-the 'void' token.
+这里假设我们已经把 `'void'`
+扫进了 `Token`。
+然后通过 `scan(&Peektoken);`
+去看看下一个 token 是什么，
+同时又不破坏当前的 `Token`。
+如果那个偷看的 token 是右括号，
+那就说明这个函数没有参数；
+于是把 `paramcnt` 设成零，
+跳过 `'void'`，
+然后直接离开循环。
 
-But if the next token wasn't a right parenthesis, we still have `Token`
-set to 'void' and we can now call `declaration_list()` to get the
-actual list of parameters.
+但如果下一个 token 不是右括号，
+那我们手里的 `Token`
+仍然还是 `'void'`，
+于是就可以继续调用 `declaration_list()`
+去解析真正的参数列表。
 
-## Hex and Octal Integer Constants
+## 十六进制与八进制整数常量
 
-I found the above problem because I've started to feed the compiler's
-source code to itself. Once I had fixed the 'void' parameter issue, the
-next thing that I found was that the compiler is unable to parse hex
-and octal constants like `0x314A` and `0073`.
+我之所以撞上上面这个问题，
+就是因为我已经开始把编译器自己的源码
+喂给它自己了。
+而在修完 `'void'` 参数问题之后，
+下一个暴露出来的毛病是：
+编译器还不会解析像 `0x314A`
+和 `0073`
+这样的十六进制与八进制常量。
 
-Luckily, the [SubC](http://www.t3x.org/subc/) compiler written by Nils M Holm
-has code to do this, and I can borrow it wholesale to add to our compiler.
-We need to modify the `scanint()` function in `scan.c` to do this:
+好在
+[SubC](http://www.t3x.org/subc/)
+编译器
+（Nils M Holm 所写）
+里已经有现成代码可借，
+我几乎可以整段拿来用。
+我们需要修改 `scan.c`
+里的 `scanint()`：
 
 ```c
 // Scan and return an integer literal
@@ -173,28 +222,45 @@ static int scanint(int c) {
 }
 ```
 
-We already had the `k= chrpos("0123456789")` code in the function to deal with
-decimal literal values. The new code above this now scans for a leading '0'
-digit. If it sees this, it checks the following character. If it's an 'x',
-the radix is 16; if not, the radix is 8.
+原来这个函数里，
+我们已经有一段
+`k= chrpos("0123456789")`
+的代码用来处理十进制字面量。
+而现在，
+上面新增的逻辑
+会先检查是否存在前导 `'0'`。
+如果有，
+再去看下一个字符：
+如果是 `'x'`，
+就说明基数（radix）是 16；
+否则就是 8。
 
-The other change is that we multiply the previous value by the radix
-instead of the constant 10. It's a very elegant way to solve this problem,
-and many thanks to Nils for writing the code.
+另外还有一个变化是：
+现在在累积数值时，
+我们不再固定乘以 10，
+而是乘以当前基数 `radix`。
+这是一种非常优雅的写法，
+得感谢 Nils 把它先写好了。
 
-## More Character Constants
+## 更多字符常量
 
-The next problem I hit was code in our compiler that says:
+接下来我又撞上的问题是：
+编译器自己的代码里有这样的判断：
 
 ```c
    if (*posn == '\0')
 ```
 
-That's a character literal which our compiler doesn't recognise. We will
-need to modify `scanch()` in `scan.c` to deal with character literals
-which are specified as octal values. But character literals
-which are specified as hexadecimal values are also possible, e.g. '\0x41'.
-Again, the code from SubC comes to our rescue:
+而这是一种当前编译器还不认识的字符字面量。
+所以我们得修改 `scan.c`
+里的 `scanch()`，
+让它能处理用八进制形式写出来的字符字面量。
+
+不过，
+字符字面量同样也可能用十六进制来指定，
+例如 `'\0x41'`。
+这时候，
+SubC 的代码再次救了我们：
 
 ```c
 // Read in a hexadecimal constant from the input
@@ -255,19 +321,24 @@ static int scanch(void) {
 }
 ```
 
-Again, it's nice and elegant code. However, we now have two code
-fragments to do hex conversion and three code fragments to do radix
-conversion, so there is still some potential refactoring here.
+这段代码同样写得很简洁漂亮。
+不过从结果来看，
+我们现在已经有两段做十六进制转换的代码，
+以及三段做不同进制转换的代码。
+所以后面在这里仍然有一些可继续重构的空间。
 
-# Conclusion and What's Next
+# 总结与下一步
 
-We mostly made changes to the scanner in this part of the journey.
-They were not earth shattering changes, but they are some of the
-little things that we need to get done to have the compiler be
-self-compiling.
+这一部分里，
+我们做的大多是扫描器相关改动。
+它们不算什么惊天动地的大变更，
+但确实都是那些必须一点点补完的细节，
+否则编译器就没法真正走向自举。
 
-Two big things that we will need to tackle are static functions and
-variables, and the `sizeof()` operator. 
+接下来还有两个大块迟早得处理：
+静态函数与静态变量，
+以及 `sizeof()` 运算符。
 
-In the next part of our compiler writing journey, I will probably
-work on the `sizeof()` operator because `static` still scares me a bit! [Next step](../47_Sizeof/Readme.md)
+在编译器编写之旅的下一部分中，
+我大概会先去处理 `sizeof()`，
+因为 `static` 现在对我来说还是有点吓人。 [下一步](../47_Sizeof/Readme.md)

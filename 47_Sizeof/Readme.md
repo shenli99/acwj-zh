@@ -1,21 +1,30 @@
-# Part 47: A Subset of `sizeof`
+# 第 47 部分：`sizeof()` 的一个子集
 
-In a real C compiler, the `sizeof()` operator gives the size in bytes of:
+在一个真正的 C 编译器里，
+`sizeof()` 运算符可以返回下面两类对象的字节大小：
 
- + a type definition, and
- + the type of an expression
+ + 一个类型定义
+ + 一个表达式的类型
 
-I looked at the code in our compiler and I'm only using `sizeof()` for
-the first of the two options above, so I'm only going to implement the
-first one. This makes things a bit easier as we can assume that
-the tokens inside the `sizeof()` are a type definition.
+我检查了一下我们当前编译器自己的代码，
+发现我只用到了上面第一种，
+也就是“对类型定义求 `sizeof()`”。
+所以我现在只实现这一半。
+这样事情就简单不少，
+因为我们可以直接假设：
+`sizeof()` 括号里的东西一定是一个类型定义。
 
-## New Token and Keyword
+## 新 token 与关键字
 
-We need a "sizeof" keyword and a new token, T_SIZEOF. As per usual,
-I'll let you look at the changes to `scan.c`.
+我们需要一个新的关键字 `"sizeof"`，
+以及一个新的 token：`T_SIZEOF`。
+按惯例，
+具体对 `scan.c` 的改动
+我就不展开贴了，
+你可以自己去看。
 
-Now, when adding new tokens, we also have to update the:
+不过在新增 token 时，
+我们还必须顺手更新下面这张表：
 
 ```c
 // List of token strings, for debugging purposes
@@ -35,24 +44,35 @@ char *Tstring[] = {
 };
 ```
 
-I initially forgot to do this, and when debugging I was seeing the "wrong"
-token description for the tokens after "default". Oops!
+我一开始就忘了改这里，
+结果调试时，
+凡是 `"default"` 之后的那些 token，
+显示出来的名字全都不对。
+有点蠢。
 
-## Changes to the Parser
+## 对解析器的修改
 
-The `sizeof()` operator is part of expression parsing, as it takes an
-expression and returns a new value. We can do things like:
+`sizeof()` 是表达式解析的一部分，
+因为它会“吃下一个东西并产出一个新值”。
+例如我们完全可以写：
 
 ```c
   int x= 43 + sizeof(char);
 ```
 
-Thus, we are going to modify `expr.c` to add `sizeof()`. It isn't a binary
-operator, and it's not a prefix or postfix operator, so the best place to
-add `sizeof()` is as part of parsing primary expressions.
+所以，
+我们需要去修改 `expr.c`
+把 `sizeof()` 加进去。
+它不是二元运算符，
+也不是前缀或后缀运算符，
+因此最适合安放它的位置，
+就是“解析主表达式（primary expression）”的那一层。
 
-In fact, once I found my silly bugs, the amount of new code to do `sizeof()`
-was small. Here it is:
+事实上，
+等我把几个自己造成的蠢 bug 修掉之后，
+真正为了支持 `sizeof()`
+所新增的代码并不多。
+如下：
 
 ```c
 // Parse a primary factor and return an
@@ -85,20 +105,30 @@ static struct ASTnode *primary(void) {
 }
 ```
 
-We already have a `parse_type()` function to parse a type definition, and
-we already have a `parse_stars()` function to parse any following asterisks.
-Finally, we already have a `typesize()` function which returns the number of
-bytes in a type. All we have to do is scan the tokens in, call these three
-functions, build a leaf AST node with an integer literal in it, and return it.
+我们本来就已经有一个 `parse_type()`，
+用来解析类型定义；
+也已经有 `parse_stars()`，
+用来处理后续跟着的星号；
+最后我们还已经有了 `typesize()`，
+能返回某个类型占用的字节数。
 
-Yes, I know there are a bunch of subtleties that go with `sizeof()`, but
-I'm following the "KISS principle" and doing enough to make our compiler
-self-compiling.
+因此这里真正要做的，
+无非就是把相关 token 读进来，
+调用这三个现成函数，
+再构造一个带整数字面量值的叶子 AST 节点返回出去。
 
-## Testing the New Code
+没错，
+我知道 `sizeof()` 其实还有一堆细节与边角行为。
+不过我还是继续坚持
+“KISS principle”，
+先做到足够让编译器能自举所需的程度。
 
-The file `tests/input115.c` has a set of tests for the primitive types,
-a pointer and for the structures in our compiler:
+## 测试新代码
+
+`tests/input115.c`
+里放了一组测试，
+用来覆盖基本类型、一个指针，
+以及编译器自身用到的几个结构体：
 
 ```c
 struct foo { int x; char y; long z; }; 
@@ -116,7 +146,7 @@ int main() {
 }
 ```
 
-At present, the output from our compiler is:
+当前编译器输出的是：
 
 ```
 1
@@ -128,13 +158,18 @@ At present, the output from our compiler is:
 48
 ```
 
-I'm wondering if we need to pad the `struct foo` struct to be 16 bytes instead
-of 13. We'll cross that bridge when we get to it.
+我现在在想，
+我们是不是应该把 `struct foo`
+补齐到 16 字节，
+而不是 13 字节。
+这个问题等后面真的撞上时再说吧。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-Well, `sizeof()` turned out to be simple, at least for the functionality that
-we need for our compiler. In reality, `sizeof()` is quite complicated for
-a full-blown production C compiler.
+至少就当前编译器所需的功能范围而言，
+`sizeof()` 实现起来还算简单。
+但如果是一个真正完整的生产级 C 编译器，
+`sizeof()` 其实会复杂得多。
 
-In the next part of our compiler writing journey, I will tackle `static`. [Next step](../48_Static/Readme.md)
+在编译器编写之旅的下一部分中，
+我会去处理 `static`。 [下一步](../48_Static/Readme.md)
