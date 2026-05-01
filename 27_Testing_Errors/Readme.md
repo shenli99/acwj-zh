@@ -1,39 +1,48 @@
-# Part 27: Regression Testing and a Nice Surprise
+# 第 27 部分：回归测试与一个意外惊喜
 
-We've had a few large-ish steps recently in our 
-compiler writing journey, so I thought we should have
-a bit of a breather in this step. We can slow down a
-bit and review our progress so far.
+最近这几步里，
+我们的编译器编写之旅已经迈出了几次不算小的步子，
+所以我觉得这一部分可以稍微喘口气。
+我们把节奏放慢一点，
+顺便回头审视一下目前为止的进展。
 
-In the last step I noticed that we didn't have a way to
-confirm that our syntax and semantic error checking was
-working correctly. So I've just rewritten the scripts
-in the `tests/` folder to do this.
+在上一部分里，
+我意识到我们还没有一个办法去确认：
+语法错误和语义错误的检查，
+到底是不是真的在按预期工作。
+所以我刚刚把 `tests/` 目录里的脚本重写了一遍，
+专门补上这件事。
 
-I've been using Unix since the late 1980s, so my go-to
-automation tools are shell scripts and Makefiles or,
-if I need more complex tools, scripts written in Python
-or Perl (yes, I'm that old).
+我从 1980 年代末就开始用 Unix，
+所以我的自动化工具偏好一直都是 shell 脚本和 Makefile；
+如果需要更复杂一点的工具，
+我通常会写 Python 或 Perl 脚本
+（对，我就是这么老）。
 
-So let's quickly look at the `runtest` script in the
-`tests/` directory. Even though I said I'd been using
-Unix scripts forever, I'm definitely not an uber
-script writer.
+那我们就快速来看一下 `tests/` 目录中的 `runtest` 脚本。
+虽然我说自己用了 Unix 脚本很多很多年，
+但我绝对算不上什么脚本大师。
 
-## The `runtest` Script
+## `runtest` 脚本
 
-The job of this script is to take a set of input programs,
-get our compiler to compile them, run the executable
-and compare its output against known-good output. If they
-match, the test is a success. If not, it's a failure.
+这个脚本的职责是：
+拿到一组输入程序，
+用我们的编译器去编译它们，
+运行生成出来的可执行文件，
+再把输出和“已知正确的输出”进行比较。
+如果一致，
+测试就算成功；
+否则就是失败。
 
-I've just extended it so that, if there is an "error"
-file associated with an input, we run our compiler
-and capture its error output. If this error output
-matches the expected error output, the test is a
-success as the compiler correctly detected the bad input.
+我现在把它扩展成了这样：
+如果某个输入对应有一个“错误输出文件”，
+那我们就运行编译器，
+捕获它的错误输出。
+只要这份错误输出和预期错误输出一致，
+那么测试同样算成功，
+因为这说明编译器正确识别了坏输入。
 
-So let's look at the sections of the `runtest` script in stages.
+下面我们分几段来看这个 `runtest` 脚本。
 
 ```
 # Build our compiler if needed
@@ -42,10 +51,11 @@ then (cd ..; make)
 fi
 ```
 
-I'm using the '( ... )' syntax here to create a *sub-shell*. This
-can change its working directory without affecting the original
-shell, so we can move up a directory and rebuild our compiler.
-
+这里我使用了 `( ... )` 语法，
+也就是创建一个 *sub-shell*（子 shell）。
+它可以切换自己的工作目录，
+而不影响原本外层 shell 的当前位置；
+因此我们可以先退回上一层目录并重新编译编译器。
 
 ```
 # Try to use each input source file
@@ -55,23 +65,29 @@ do if [ ! -f "out.$i" -a ! -f "err.$i" ]
    then echo "Can't run test on $i, no output file!"
 ```
 
-The '[' thing is actually the external Unix tool, *test(1)*.
-Oh, if you've never seen this syntax before, *test(1)* means
-the manual page for *test* is in Section One of the man pages,
-and you can do:
+这里的 `[` 其实就是外部 Unix 工具 *test(1)*。
+哦，如果你以前没见过这种写法，
+那 *test(1)* 的意思是：
+*test* 这个命令的手册页位于 man page 的第一节，
+所以你可以执行：
 
 ```
 $ man 1 test
 ```
 
-to read the manual for *test* in Section One of the man pages.
-The `/usr/bin/[` executable is usually linked to `/usr/bin/test`,
-so that when you use '[' in a shell script, it's the same as running
-the *test* command.
+来查看它的说明。
+通常 `/usr/bin/[` 这个可执行文件
+会链接到 `/usr/bin/test`，
+所以在 shell 脚本里写 `[`，
+本质上就和运行 `test` 命令是一样的。
 
-We can read the line `[ ! -f "out.$i" -a ! -f "err.$i" ]` as saying:
-test if there is no file "out.$i" and no file "err.$i". If both
-don't exist, we can give the error message.
+那这一句
+`[ ! -f "out.$i" -a ! -f "err.$i" ]`
+可以读成：
+检查是否既不存在 `"out.$i"`，
+也不存在 `"err.$i"`。
+如果两个文件都没有，
+那我们就只能报错说明没法测试。
 
 ```
    # Output file: compile the source, run it and
@@ -104,20 +120,22 @@ don't exist, we can give the error message.
           fi
 ```
 
-This is the bulk of the script. I think the comments
-explain what is going on, but perhaps there are some
-subtleties to flesh out. `cmp -s` compares two
-text files;  the `-s` flag means produce no output
-but set the exit value that `cmp` gives when it exits to:
+这就是脚本的主体部分了。
+我觉得注释基本已经把逻辑讲清楚了，
+不过有些细节还是值得补一句。
+`cmp -s` 会比较两个文本文件；
+其中 `-s` 的意思是“不输出比较结果内容”，
+只通过退出码告诉我们它的判断：
 
 > 0 if inputs are the same, 1  if  different,  2  if
   trouble. (from the man page)
 
-The line `if [ "$?" -eq "1" ]` says: if the exit value
-of the last command is equal to the number 1. So, if
-the compiler's output is different to the known-good
-output, we announce this and use the `diff` tool to
-show the differences between the two files.
+而 `if [ "$?" -eq "1" ]` 这一句的意思是：
+如果“上一条命令的退出值”恰好等于 1。
+也就是说，
+如果编译器输出和“已知正确输出”不一致，
+那我们就宣布测试失败，
+并用 `diff` 工具把两个文件之间的差异打印出来。
 
 ```
    # Error file: compile the source and
@@ -132,35 +150,45 @@ show the differences between the two files.
           ...
 ```
 
-This section gets executed when there is an error
-document, "err.$i". This time, we use the shell
-syntax `2>` to capture our compiler's standard
-error output to the file "trial.$i" and compare
-that against the correct error output. The logic
-after this is the same as before.
+这一段会在存在错误文件 `err.$i` 时执行。
+这次，
+我们使用 shell 的 `2>` 语法，
+把编译器的标准错误输出重定向到 `trial.$i` 中，
+再把它和正确的错误输出做比较。
+后面的逻辑和前面是一样的。
 
-## What We Are Doing: Regression Testing
+## 我们现在在做什么：回归测试
 
-I haven't talked much before about testing, but now's the
-time. I've taught software development in the past so it
-would be remiss of me not to cover testing at some point.
+之前我其实没怎么专门聊过测试，
+但现在是时候补一下了。
+我过去也教过软件开发，
+所以如果整个过程里完全不提测试，
+未免有点说不过去。
 
-What we are doing here is [**regression testing**](https://en.wikipedia.org/wiki/Regression_testing).
-Wikipedia gives this definition:
+我们现在做的事叫做
+[**回归测试（regression testing）**](https://en.wikipedia.org/wiki/Regression_testing)。
+Wikipedia 给出的定义是：
 
 > Regression testing is the action of re-running functional and non-functional tests
 > to ensure that previously developed and tested software still performs after a change.
 
-As our compiler is changing at each step, we have to ensure that each new change doesn't
-break the functionality (and the error checking) of the previous steps. So each time I
-introduce a change, I add one or more tests to a) prove that it works and b) re-run
-this test on future changes. As long as all the tests pass, I'm sure that the new
-code hasn't broken the old code.
+由于我们的编译器在每一步都会发生变化，
+所以必须确保：
+每一次新改动都不会把前面步骤中的功能
+（以及错误检查能力）弄坏。
+因此每当我引入新改动时，
+我都会顺手增加一个或多个测试：
+a) 证明新功能确实可用；
+b) 在未来的改动里继续重复执行这些测试。
+只要所有测试都还能通过，
+我就能比较有把握地认为：
+新代码没有把旧代码弄坏。
 
-### Functional Tests
+### 功能测试
 
-The `runtests` script looks for files with the `out` prefix to do the
-functional testing. Right now, we have:
+`runtests` 脚本会去寻找以 `out` 为前缀的文件，
+并据此执行功能测试（functional testing）。
+目前我们有：
 
 ```
 tests/out.input01.c  tests/out.input12.c   tests/out.input22.c
@@ -176,16 +204,20 @@ tests/out.input10.c  tests/out.input20.c   tests/out.input53.c
 tests/out.input11.c  tests/out.input21.c   tests/out.input54.c
 ```
 
-That's 33 separate tests of the compiler's functionality. Right now,
-I know for a fact that our compiler is a bit fragile. None of these
-tests really stress the compiler in any way: they are simple tests
-of a few lines each. Later on, we will start to add some nasty stress
-tests to help strengthen the compiler and make it more resilient.
+这意味着，
+目前一共有 33 个独立的功能测试。
+不过我现在很清楚，
+我们的编译器其实还相当脆弱。
+这些测试基本都没有真正“压一压”编译器：
+它们大多只是每个几行的小程序。
+后面我们会逐步加入一些更恶心的压力测试，
+好让编译器更结实、更有韧性。
 
-### Non-Functional Tests
+### 非功能测试
 
-The `runtests` script looks for files with the `err` prefix to do the
-functional testing. Right now, we have:
+`runtests` 脚本会去寻找以 `err` 为前缀的文件，
+并据此做错误相关测试。
+目前我们有：
 
 ```
 tests/err.input31.c  tests/err.input39.c  tests/err.input47.c
@@ -198,63 +230,81 @@ tests/err.input37.c  tests/err.input45.c
 tests/err.input38.c  tests/err.input46.c
 ```
 
-I created these 22 tests of the compiler's error checking in this
-step of our journey by looking for `fatal()` calls in the compiler.
-For each one, I've tried to write a small input file which would
-trigger it. Have a read of the matching source files and see if
-you can work out what syntax or semantic error each one triggers.
+我在这一部分里新建了这 22 个“编译器错误检查测试”。
+方法很直接：
+我去编译器代码里找所有 `fatal()` 调用，
+然后尽量为每一个调用写一个小输入文件，
+让它能触发对应错误。
+你可以自己去读一读这些配套源文件，
+看看能不能猜出每个文件分别触发了哪一种语法错误或语义错误。
 
-## Other Forms of Testing
+## 其他形式的测试
 
-This isn't a course on software development methodologies, so I won't give
-too much more coverage on testing. But I'll give you links to a few
-more thing that I would highly recommend that you look at:
+这毕竟不是一门完整的软件开发方法学课程，
+所以我不会在测试话题上再铺开太多。
+不过我还是会放几个链接，
+非常建议你顺手去看一看：
 
-  + [Unit testing](https://en.wikipedia.org/wiki/Unit_testing)
-  + [Test-driven development](https://en.wikipedia.org/wiki/Test-driven_development)
-  + [Continuous integration](https://en.wikipedia.org/wiki/Continuous_integration)
-  + [Version control](https://en.wikipedia.org/wiki/Version_control)
+  + [单元测试（Unit testing）](https://en.wikipedia.org/wiki/Unit_testing)
+  + [测试驱动开发（Test-driven development）](https://en.wikipedia.org/wiki/Test-driven_development)
+  + [持续集成（Continuous integration）](https://en.wikipedia.org/wiki/Continuous_integration)
+  + [版本控制（Version control）](https://en.wikipedia.org/wiki/Version_control)
 
-I haven't done any unit testing with our compiler. The main reason
-here is that the code is very fluid in terms of the APIs for the
-functions. I'm not using a traditional waterfall model of development,
-so I'd be spending too much time rewriting my unit tests to match
-the latest APIs of all the functions. So, in some sense I am living
-dangerously here: there will be a number of latent bugs in the code
-which we haven't detected yet.
+我目前还没有对我们的编译器做单元测试。
+主要原因是：
+代码当前在 API 层面变化太快了，
+函数接口还非常流动。
+我现在并不是按那种传统瀑布式开发模型在推进，
+所以如果强行做很多单元测试，
+大概率只会让我不断花时间重写测试本身，
+去追最新的函数 API。
 
-However, there are guaranteed to be *many* more bugs where the
-compiler looks like it accepts the C language, but of course this isn't
-true. The compiler is failing the
-[principle of least astonishment](https://en.wikipedia.org/wiki/Principle_of_least_astonishment). We will need to spend some time adding in
-functionality that a "normal" C programmer expects to see.
+某种意义上说，
+我现在其实是在“危险驾驶”：
+代码里肯定还藏着不少潜在 bug，
+只是我们还没把它们挖出来。
 
-## And a Nice Surprise
+不过更确定的一点是：
+还有*更多更多*的 bug，
+会表现成“编译器看起来像是接受了 C 语言”，
+但实际上根本不是这么回事。
+目前这个编译器还远远没有满足
+[最小惊讶原则（principle of least astonishment）](https://en.wikipedia.org/wiki/Principle_of_least_astonishment)。
+后面我们还得专门花些时间，
+把一个“正常 C 程序员会理所当然期待出现”的功能慢慢补齐。
 
-Finally, we have a nice functional surprise with the compiler as it
-stands. A while back, I purposefully left out the code to test
-that the number and type of arguments to a function call matches
-the function's prototype (in `expr.c`):
+## 一个意外惊喜
+
+最后，
+以当前这个编译器状态来看，
+我们还收获了一个挺有意思的功能性意外。
+之前我故意留空了一段代码，
+没有去检查“函数调用的实参数量和类型”
+是否和函数原型匹配（位于 `expr.c`）：
 
 ```
   // XXX Check type of each argument against the function's prototype
 ```
 
-I left this out as I didn't want to add too much new code in one of
-our steps.
+我当时故意没做，
+是不想在那个阶段一下子塞进太多新代码。
 
-Now that we have prototypes, I've wanted to finally add support for
-`printf()` so that we can ditch our homegrown `printint()` and
-`printchar()` functions. But we can't do this just yet, because
-`printf()` is a [variadic function](https://en.wikipedia.org/wiki/Variadic_function):
-it can accept a variable number of parameters. And, right now, our
-compiler only allows a function declaration with a fixed number of
-parameters.
+现在既然已经有了函数原型，
+我就一直想终于把 `printf()` 支持起来，
+这样我们就能摆脱自制的 `printint()` 和 `printchar()` 函数。
+但眼下还做不到完全正确，
+因为 `printf()` 是一个
+[可变参数函数（variadic function）](https://en.wikipedia.org/wiki/Variadic_function)：
+它可以接受数量可变的参数。
+而我们当前的编译器
+只允许声明“参数数量固定”的函数。
 
-*However* (and this is the nice surprise), because we don't check
-the number of arguments in a function call, we can pass *any* number
-of arguments to `printf()` as long as we have given it an existing
-prototype. So, at present, this code (`tests/input53.c`) works:
+*不过*，
+这里就出现了这个意外惊喜：
+正因为我们目前**不会检查函数调用中的参数个数**，
+所以只要给 `printf()` 写一个现成原型，
+我们就可以向它传*任意数量*的参数。
+因此目前下面这段代码（`tests/input53.c`）是能工作的：
 
 ```c
 int printf(char *fmt);
@@ -266,27 +316,35 @@ int main()
 }
 ```
 
-And that's a nice thing!
+这还挺不错的！
 
-There is a gotcha. With the given `printf()` prototype, the cleanup code
-in `cgcall()` won't adjust the stack pointer when the function returns,
-as there are less than six parameters in the prototype. But we could
-call `printf()` with ten arguments: we'd push four of them on the stack,
-but `cgcall()` wouldn't clean up these four arguments when `printf()`
-returns.
+不过这里有个坑。
+按照现在给出的 `printf()` 原型，
+`cgcall()` 里的清理代码在函数返回时
+不会去调整栈指针，
+因为原型里看起来“参数不到六个”。
+可实际上，
+我们完全可能用十个参数去调用 `printf()`：
+那就会有四个参数被压到栈上，
+但 `cgcall()` 却不会在 `printf()` 返回后
+把这四个参数从栈上清掉。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-There is no new compiler code in this step, but we are now testing the
-error checking capability of the compiler, and we now have 54
-regression tests to help ensure we don't break the compiler when
-we add new functionality. And, fortuitously, we can now use
-`printf()` as well as the other external fixed parameter count functions.
+这一部分里没有新增编译器代码，
+但我们现在已经开始测试编译器的错误检查能力了，
+同时也拥有了 54 个回归测试，
+用来帮助我们在加入新功能时
+尽量不把已有功能搞坏。
+另外，
+也正是因为当前这个“阴差阳错的缺口”，
+我们现在已经能用 `printf()`，
+以及其他那些参数个数固定的外部函数。
 
-In the next part of our compiler writing journey, I think I'll
-try to:
+在编译器编写之旅的下一部分中，
+我大概会尝试：
 
- + add support for an external pre-processor
- + allow the compiler to compile multiple files named on the command line
- + add the `-o`, `-c` and `-S` flags to the compiler to make it feel
-more like a "normal" C compiler [Next step](../28_Runtime_Flags/Readme.md)
+ + 增加对外部预处理器（external pre-processor）的支持
+ + 允许编译器处理命令行中给出的多个文件
+ + 给编译器加上 `-o`、`-c` 和 `-S` 选项，
+   让它在使用体验上更像一个“正常”的 C 编译器 [下一步](../28_Runtime_Flags/Readme.md)
