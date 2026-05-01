@@ -1,56 +1,68 @@
-# Part 25: Function Calls and Arguments
+# 第 25 部分：函数调用与实参
 
-In this part of our compiler writing journey, I'm going to add the ability
-to call functions with an arbitrary number of arguments; the argument's
-values will be copied into the function's parameters and appear as
-local variables.
+在编译器编写之旅的这一部分里，
+我要给编译器加入“以任意数量实参调用函数”的能力；
+实参的值会被复制到函数形参中，
+并作为局部变量出现在函数体里。
 
-I haven't done this yet, because there is a bit of design thinking to be
-done before the coding can begin. Once more, let's review
-the image from Eli Bendersky's article on the
-[stack frame layout on x86-64](https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64/).
+我之前还没动手做这件事，
+因为在开始编码之前，
+还有一些设计问题需要先想清楚。
+照例，
+我们再回看一次 Eli Bendersky 那篇文章里的图：
+[x86-64 栈帧布局](https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64/)。
 
 ![](../22_Design_Locals/Figs/x64_frame_nonleaf.png)
 
-Up to six "call by value" arguments to a function are passed in via the
-registers `%rdi` to `%r9`. For more than six arguments, the remaining arguments
-are pushed on the stack.
+一个函数最多前六个“值传递（call by value）”实参
+会通过寄存器 `%rdi` 到 `%r9` 传入。
+超过六个以后，
+剩余实参会被压到栈上。
 
-Look closely at the argument values on the stack. Even though `h` is the
-last argument, it is pushed first on the stack (which grows downwards),
-and the `g` argument is pushed *after* the `h` argument.
+仔细看一下栈上的实参值。
+虽然 `h` 是最后一个实参，
+但它会最先被压入那个“向下增长”的栈中；
+而 `g` 这个实参，
+则是在 `h` *之后* 才被压栈。
 
-One of the *Bad Things* about C is that there is no defined order of
-expression evaluation. As noted
-[here](https://en.cppreference.com/w/c/language/eval_order):
+C 语言里一个相当糟糕的点在于：
+表达式求值顺序并没有被定义。
+正如
+[这里](https://en.cppreference.com/w/c/language/eval_order)
+所说：
 
 > [The] order of evaluation of the operands of any C operator, including
   the order of evaluation of function arguments in a function-call
   expression ... is unspecified ... . The compiler will evaluate them
   in any order ...
 
-This makes the language potentially unportable: the behaviour of code
-on one platform with one compiler may have different behaviour on a
-different platform or when compiled with a different compiler.
+这会让语言天然带有一定程度的不可移植性：
+同一段代码在某个平台、某个编译器上的行为，
+换到另一个平台或另一个编译器后，
+有可能表现不同。
 
-For us, though, this lack of defined evaluation order is a *Good Thing*,
-only because we can generate our argument values in the order that
-makes it easier to write our compiler. I'm being flippant here: this
-is really not much of a good thing.
+但对我们来说，
+这种“没有定义求值顺序”的特性反而暂时成了一件*好事*，
+因为这意味着：
+我们可以按照“更方便编译器实现”的顺序去生成实参值。
+我这里说得有点轻描淡写了；
+严格来说，
+这其实并不是什么真正意义上的好事。
 
-Because the x86-64 platform expects the last argument's value to be pushed
-on the stack first, I'll need to write the code to process arguments from
-the last to the first. I should make sure that the code could be easily
-altered to allow processing in the other direction: perhaps a `genXXX()`
-query function could be written to tell our code which direction to process
-the arguments. I'll leave that to be written later.
+由于 x86-64 平台要求“最后一个实参的值先被压栈”，
+所以我必须把处理实参的代码写成“从最后一个到第一个”。
+不过我也应该确保，
+这套代码以后能比较容易改成反过来的处理方向：
+也许可以加一个 `genXXX()` 查询函数，
+让代码根据目标架构决定“应该按哪个方向处理参数”。
+这部分我以后再补。
 
-### Generating an AST of Expressions
+### 生成表达式的 AST
 
-We already have the A_GLUE AST node type, so it should be easy to
-write a function to parse the argument expressions and build an AST tree.
-For a function call `function(expr1, expr2, expr3, expr4)`, I've decided
-to build the tree like this:
+我们已经有 `A_GLUE` 这种 AST 节点类型了，
+所以写一个函数去解析实参表达式列表并构建 AST 应该不难。
+对于函数调用 `function(expr1, expr2, expr3, expr4)`，
+我决定把树构造成这样：
 
 ```
                  A_FUNCCALL
@@ -66,36 +78,47 @@ to build the tree like this:
    NULL  expr1
 ```
 
-Each expression is on the right, and previous expressions are on the left.
-I will have to traverse the sub-tree of expressions right to left, to
-ensure that I process `expr4` before `expr3` in case the former has to
-be pushed on the x86-64 stack before the latter.
+每个表达式都放在右边，
+而之前已经解析出来的表达式树则挂在左边。
+这样我在遍历这棵“表达式子树”时，
+就必须从右往左走，
+以确保在 x86-64 上需要先压栈的 `expr4`
+会在 `expr3` 之前被处理。
 
-We already have a `funccall()` function to parse a simple function call
-with always one argument. I'll modify this to call an `expression_list()`
-function to parse the expression list and build the A_GLUE sub-tree. It
-will return a count of the number of expressions by storing this count
-in the top A_GLUE AST node. Then, in `funccall()`, we can check the type
-of all the expressions against the function's prototype which should be
-stored in the global symbol table.
+我们已经有一个 `funccall()`，
+它原本只能解析“永远只有一个参数”的简单函数调用。
+我准备修改它，
+让它去调用 `expression_list()`，
+由后者负责解析表达式列表并构建 `A_GLUE` 子树。
+这个函数会把表达式个数存进最顶层 `A_GLUE` 节点，
+并把这个计数返回出来。
+之后在 `funccall()` 里，
+我们就可以把所有表达式的类型
+与保存在全局符号表中的函数原型做比较。
 
-I think that's enough on the design side of things. Let's now get on
-to the implementation.
+设计层面我觉得差不多讲够了。
+下面开始看具体实现。
 
-## Expression Parsing Changes
+## 表达式解析的变更
 
-Well, I got the code done in an hour or so and I'm pleasantly surprised. To
-borrow a quote that floats around on Twitter:
+嗯，
+代码我大概一个小时就写完了，
+自己还有点意外。
+借用一句常在 Twitter 上流传的话：
 
 > Weeks of programming can save you hours of planning.
 
-Conversely, a bit of time spent on design always helps with
-the efficiency of coding.
-Let's have a look at the changes. We'll start with the parsing.
+反过来说，
+前面多花一点时间做设计，
+通常确实能提升后面写代码的效率。
+下面来看看改动。
+我们先从解析部分开始。
 
-We now have to parse a comma-separated list of expressions, and build that
-A_GLUE AST tree with child expressions on the right, and previous expression
-trees on the left. Here is the code in `expr.c`:
+现在我们要解析“逗号分隔的表达式列表”，
+并构建那棵 `A_GLUE` AST：
+子表达式放在右子树，
+更早的表达式树挂在左子树。
+`expr.c` 里的代码如下：
 
 ```c
 // expression_list: <null>
@@ -142,8 +165,9 @@ static struct ASTnode *expression_list(void) {
 }
 ```
 
-That turned out to be much easier to code than I was expecting. Now, we need
-to interface this with the existing function call parser:
+这部分写起来比我原本预想的简单多了。
+接下来，
+我们要把它接到现有的函数调用解析器上：
 
 ```c
 // Parse a function call and return its AST
@@ -175,23 +199,29 @@ static struct ASTnode *funccall(void) {
 }
 ```
 
-Note the `XXX` which is my reminder that I still have work to perform.
-The parser does check that the function has previously been declared,
-but as yet it doesn't compare the argument types against the function's
-prototype. I'll do that soon.
+注意里面那个 `XXX`，
+这是我给自己留的提醒，
+表示还有活没做完。
+目前解析器已经会检查：
+这个函数是否在之前声明过。
+但它还没有拿实参类型去和函数原型做逐项对比。
+这部分我很快就会补上。
 
-The AST tree that is returned now has the shape that I drew up near the
-beginning of this article. Now it's time to walk it and generate assembly code.
+现在返回出来的 AST，
+形状已经和文章开头我画出来的那棵树一致了。
+接下来就是遍历它并生成汇编代码。
 
-## Changes to the Generic Code Generator
+## 通用代码生成器的变更
 
-The way the compiler is written, the code that walks the AST  is
-architecture-neutral is in `gen.c`, and the actual platform-dependent
-back-end is in `cg.c`. So we start with the changes to `gen.c`.
+这个编译器的结构是这样的：
+负责遍历 AST 的那一层是架构无关的，
+位于 `gen.c`；
+而真正平台相关的后端则在 `cg.c` 中。
+所以我们先看 `gen.c` 里的变化。
 
-There is a non-trivial amount of code needed to walk this new AST structure,
-so I now have a function to deal with function calls. In `genAST()` we now
-have:
+遍历这个新 AST 结构需要一段不算太短的逻辑，
+因此我专门写了一个处理函数调用的函数。
+现在 `genAST()` 里有了这一段：
 
 ```c
   // n is the AST node being processed
@@ -202,7 +232,7 @@ have:
   }
 ```
 
-The code to walk the new AST structure is here:
+而遍历新 AST 结构的代码在这里：
 
 ```c
 // Generate the code to copy the arguments of a
@@ -234,31 +264,41 @@ static int gen_funccall(struct ASTnode *n) {
 }
 ```
 
-There are a few things to note. We generate the expression code by
-calling `genAST()` on the right child. Also, we set `numargs` to the
-first `size` value, which is the number of arguments (one-based not zero-based).
-Then we call `cgcopyarg()` to copy this value into the function's *n'th*
-parameter. Once the copy is done, we can free all our registers in preparation
-for the next expression, and walk down the left child for the previous
-expression.
+这里有几点值得注意。
+表达式代码是通过对右孩子调用 `genAST()` 生成的。
+同时，
+我们把 `numargs` 设成第一次读到的 `size` 值，
+它也就是实参数量
+（注意这里是从 1 开始计数，而不是从 0）。
+然后调用 `cgcopyarg()`，
+把这个值复制到函数的第 *n* 个参数位置。
 
-Finally, we run `cgcall()` to generate the actual call to the function.
-Because we may have pushed argument values on the stack, we provide this
-with the number of arguments in total so it can work out how many to pop
-back off the stack.
+复制完成后，
+我们就可以把寄存器全部释放，
+为下一个表达式做准备；
+然后再沿着左孩子走向“前一个表达式”。
 
-There is no hardware-specific code here but, as I mentioned at the top,
-we are walking the expression tree from the last expression to the first.
-Not all architectures will want this, so there is room to make the code
-more flexible in terms of the order of evaluation.
+最后，
+我们调用 `cgcall()` 来生成真正的函数调用。
+因为在这个过程中我们可能已经把若干参数压到了栈上，
+所以还需要把总实参数量也传给它，
+好让它能算出调用后该从栈上弹回多少内容。
 
-## Changes to `cg.c`
+这里还没有牵涉任何硬件相关代码；
+不过正如我在前面提到的，
+我们现在是从“最后一个表达式”走到“第一个表达式”。
+并不是所有架构都喜欢这个顺序，
+因此这部分以后仍然有空间做得更灵活一些，
+比如让它根据目标架构选择求值顺序。
 
-Now we get to the functions that generate actual x86-64 assembly code output.
-We have created a new one, `cgcopyarg()`, and modified an existing one,
-`cgcall()`.
+## `cg.c` 的变更
 
-But first, a reminder that we have these lists of registers:
+现在终于轮到真正生成 x86-64 汇编输出的函数了。
+我们新增了一个 `cgcopyarg()`，
+并修改了现有的 `cgcall()`。
+
+不过先回顾一下，
+我们当前有这样几组寄存器列表：
 
 ```c
 #define FIRSTPARAMREG 9         // Position of first parameter register
@@ -272,14 +312,17 @@ static char *dreglist[] =
   { "%r10d", "%r11d", "%r12d", "%r13d", "%r9d", "%r8d", "%ecx", "%edx", "%esi", "%edi" };
 ```
 
-with FIRSTPARAMREG set to the last index position: we will walk backwards down
-this list.
+`FIRSTPARAMREG` 设在最后一个索引位置，
+也就是说我们会沿着这个数组往前倒着走。
 
-Also, remember that the argument position numbers we will get are one-based
-(i.e 1, 2, 3, 4, ...) not zero-based (0, 1, 2, 3, ...), but the array above
-is zero-based. You will see a few `+1` or `-1` adjustments in the code below.
+另外别忘了：
+我们拿到的参数位置编号是从 1 开始的
+（也就是 1、2、3、4……），
+而不是从 0 开始；
+但上面的数组却是从 0 开始编号。
+所以你会在下面代码里看到几个 `+1` 或 `-1` 的调整。
 
-Here is `cgcopyarg()`:
+下面是 `cgcopyarg()`：
 
 ```c
 // Given a register with an argument value,
@@ -302,7 +345,9 @@ void cgcopyarg(int r, int argposn) {
 }
 ```
 
-Nice and simple except for the `+1`. Now the code for `cgcall()`:
+相当直接，
+除了那个 `+1` 稍微要动点脑子。
+接着是 `cgcall()`：
 
 ```c
 // Call a function with the given symbol id
@@ -322,15 +367,19 @@ int cgcall(int id, int numargs) {
 }
 ```
 
-Again, nice and simple.
+同样也很简洁。
 
-## Testing the Changes
+## 测试这些改动
 
-In the last part of our compiler writing journey, we had two separate
-test programs `input27a.c` and `input27b.c`: we had to compile one of
-them with `gcc`. Now, we can combine them together and compile it all
-with our compiler. There is a second test program `input28.c` with
-some more examples of function calling. As always:
+在编译器编写之旅的上一部分中，
+我们有两个分开的测试程序 `input27a.c` 和 `input27b.c`：
+其中一个还得用 `gcc` 去编译。
+而现在，
+我们已经可以把它们合并在一起，
+并全部交给自己的编译器去处理了。
+此外还有第二个测试程序 `input28.c`，
+里面放了更多函数调用示例。
+照例：
 
 ```
 $ make test
@@ -344,21 +393,34 @@ input27.c: OK
 input28.c: OK
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-Right now, I feel that our compiler has just gone from being a "toy" compiler
-to one which is nearly useful: we can now write multi-function programs
-and call between the functions. It took a few steps to get there, but
-I think each step was not a giant one.
+到现在为止，
+我觉得我们的编译器已经从一个“玩具编译器”
+迈进到了一个“开始有点实际用途”的状态：
+我们现在终于可以写多函数程序，
+并在这些函数之间相互调用了。
+虽然走到这里花了好几个步骤，
+但我觉得每一步都不算特别巨大。
 
-There is obviously still a big journey left. We need to add structs,
-unions, external identifiers and a pre-processor. Then we have to make
-the compiler more robust, provide better error detections, possibly
-add warnings etc. So, perhaps we are about half-way at this point.
+当然，
+前面的路还很长。
+我们还需要加上结构体（struct）、
+联合体（union）、
+外部标识符（external identifier）
+以及预处理器（pre-processor）。
+然后还得让编译器更稳健，
+提供更好的错误检测，
+甚至也许还要加警告机制等等。
+所以也许，
+现在的进度大概只走到一半。
 
-In the next part of our compiler writing journey, I think I'm going to
-add the ability to write function prototypes. This will allow us to
-link in outside functions. I'm thinking of those original Unix functions
-and system calls which are `int` and `char *` based such as `open()`,
-`read()`, `write()`, `strcpy()` etc. It will be nice to compile
-some useful programs with our compiler. [Next step](../26_Prototypes/Readme.md)
+在编译器编写之旅的下一部分中，
+我打算先加入“函数原型（function prototype）”的书写能力。
+这样一来，
+我们就可以链接外部函数了。
+我想到的是那些经典 Unix 函数和系统调用，
+例如基于 `int` 和 `char *` 的 `open()`、
+`read()`、`write()`、`strcpy()` 等等。
+如果能用我们的编译器编出一些真正有用的小程序，
+那会很不错。 [下一步](../26_Prototypes/Readme.md)
