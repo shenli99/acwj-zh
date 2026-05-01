@@ -1,22 +1,21 @@
-# Part 16: Declaring Global Variables Properly
+# 第 16 部分：正确声明全局变量
 
-I did promise to look at the issue of adding offsets to pointers, but
-I need to do some thinking about that first. So I've decided to move
-global variable declarations out of function declarations. Actually,
-I've also left the parsing of variable declarations inside functions, because
-later on we will change them to be local variable declarations.
+我之前确实答应过要研究“给指针加偏移量”这个问题，
+但在动手之前我还得再想一想。
+所以这一次我先决定把全局变量声明从函数声明里移出去。
+实际上，我也暂时保留了“在函数内部解析变量声明”的逻辑，
+因为之后我们会把它们改造成局部变量声明。
 
-I also want to extend our grammar so that we can declare multiple
-variables with the same type at the same time, e.g.
+我还想扩展语法，
+让我们能一次声明多个同类型变量，例如：
 
 ```c
   int x, y, z;
 ```
 
-## The New BNF Grammar
+## 新的 BNF 语法
 
-Here is the new BNF grammar for global declarations, both functions and
-variables:
+下面是函数和变量这两类全局声明的新 BNF 语法：
 
 ```
  global_declarations : global_declarations 
@@ -38,30 +37,36 @@ variables:
  identifier_list: identifier | identifier ',' identifier_list ;
 ```
 
-Both `function_declaration` and `global_declaration` start with a `type`.
-This is now a `type_keyword` followed by `opt_pointer` which is zero or more
-'*' tokens. After this, both `function_declaration` and `global_declaration`
-must be followed by one identifier.
+`function_declaration` 和 `global_declaration`
+现在都以一个 `type` 开始。
+而 `type` 本身由一个 `type_keyword`
+再加上零个或多个 `'*'` 组成的 `opt_pointer` 构成。
+在这之后，
+无论是 `function_declaration` 还是 `global_declaration`，
+都必须先跟着一个标识符。
 
-However, after the `type`, `var_declaration` is followed by an
-`identifier_list`, which is one or more `identifier`s separated by a ',' token.
-Also `var_declaration` must end with a ';' token but `function_declaration`
-ends with a `compound_statement` and no ';' token.
+不过，在 `type` 之后，
+`var_declaration` 跟着的是一个 `identifier_list`，
+也就是一个或多个由逗号分隔的标识符。
+此外，`var_declaration` 必须以 `';'` 结束，
+而 `function_declaration` 则以 `compound_statement` 结束，
+因此它不带分号。
 
-## New Tokens
+## 新 token
 
-We now have the T_COMMA token for the ',' character in `scan.c`.
+现在我们在 `scan.c` 中新增了 `','` 对应的 token：`T_COMMA`。
 
-## Changes to `decl.c`
+## 对 `decl.c` 的修改
 
-We now convert the above BNF grammar into a set of recursive descent
-functions but, as we can do looping, we can turn some of the recursion
-into internal loops.
+接下来，我们把上面的 BNF 语法转成递归下降解析函数。
+不过因为很多地方都可以循环处理，
+所以我们可以把部分递归改成内部循环。
 
 ### `global_declarations()`
 
-As there are one or more global declarations, we can loop parsing
-each one. When we run out of tokens, we can leave the loop.
+由于全局声明是“一条或多条”，
+所以完全可以循环去解析每一条。
+等 token 耗尽时，再退出循环。
 
 ```c
 // Parse one or more global declarations, either
@@ -97,16 +102,19 @@ void global_declarations(void) {
 }
 ```
 
-Knowing that, for now we only have global variables and functions, we
-can scan in the type here and the first identifier. Then, we look at
-the next token. If it's a '(', we call `function_declaration()`. If not,
-we can assume that it is a  `var_declaration()`. We pass the `type`
-in to both functions.
+目前已知我们只有“全局变量”和“函数”这两类全局声明，
+因此可以先把类型和第一个标识符读出来。
+再看下一个 token：
+如果它是 `'('`，
+就说明这是 `function_declaration()`；
+否则就可以假定它是 `var_declaration()`。
+这里我们把 `type` 同时传给这两个函数。
 
-Now that we are receiving the AST `tree` from `function_declaration()`
-here, we can generate the code from the AST tree immediately. This code
-was in `main()` but has now been moved here. `main()` now only has to 
-call `global_declarations()`:
+既然现在 `function_declaration()` 返回 AST `tree`，
+我们也就可以在这里立即调用 `genAST()` 生成代码。
+这段逻辑原先是在 `main()` 中，
+现在已经移到这里了。
+于是 `main()` 只需要调用 `global_declarations()`：
 
 ```c
   scan(&Token);                 // Get the first token from the input
@@ -117,15 +125,18 @@ call `global_declarations()`:
 
 ### `var_declaration()`
 
-The parsing of functions is much the same as before, except the code
-to scan the type and identifier are done elsewhere, and we receive the
-`type` as an argument.
+函数声明的解析整体上和以前差不多，
+只是扫描类型和标识符的工作现在被提前放到外面完成了，
+函数本身只需要接收 `type` 参数。
 
-The parsing of variables also loses the type and identifier scanning code.
-We can add the identifier to the global symbol and generate the assembly
-code for it. But now we need to add in a loop. If there's a following ',',
-loop back to get the next identifier with the same type. And if there's
-a following ';', that's the end of the variable declarations.
+变量声明这边也同样去掉了类型与首个标识符的扫描逻辑。
+我们可以直接把标识符加入全局符号表，
+并为它生成对应的汇编存储代码。
+但现在还要再加一个循环：
+如果后面跟着的是 `','`，
+就继续读下一个同类型标识符；
+如果后面跟着的是 `';'`，
+说明这一组变量声明结束。
 
 ```c
 // Parse the declaration of a list of variables.
@@ -158,14 +169,15 @@ void var_declaration(int type) {
 }
 ```
 
-## Not Quite Local Variables
+## 还不算真正的局部变量
 
-`var_declaration()` can now parse a list of variable declarations, but
-it requires the type and first identifier to be pre-scanned.
+`var_declaration()` 现在已经能解析一整串变量声明，
+但它要求“类型”和“第一个标识符”都已经在外面预先扫描好了。
 
-Thus, I've left the call to `var_declaration()` in `single_statement()`
-in `stmt.c`. Later on, we will modify this to declare local variables.
-But for now, all of the variables in this example program are globals:
+因此，我暂时保留了 `stmt.c` 中
+`single_statement()` 对 `var_declaration()` 的调用。
+以后我们会把这部分改成真正的局部变量声明。
+不过眼下，下面这个示例程序里的所有变量其实仍然都是全局变量：
 
 ```c
 int   d, f;
@@ -182,9 +194,10 @@ int main() {
 }
 ```
 
-## Testing the Changes
+## 测试这些改动
 
-The above code is our `tests/input16.c`. As always, we can test it:
+上面的代码就是我们的 `tests/input16.c`。
+照例可以直接测试：
 
 ```
 $ make test16
@@ -199,7 +212,7 @@ cc -o out out.s lib/printint.c
 ```
 
 
-## Conclusion and What's Next
+## 总结与下一步
 
-In the next part of our compiler writing journey,
-I promise to tackle the issue of adding offsets to pointers. [Next step](../17_Scaling_Offsets/Readme.md)
+在编译器编写之旅的下一部分中，
+我保证会真正去处理“给指针加偏移量”这个问题。 [下一步](../17_Scaling_Offsets/Readme.md)

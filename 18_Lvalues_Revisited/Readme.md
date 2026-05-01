@@ -1,12 +1,14 @@
-# Part 18: Lvalues and Rvalues Revisited
+# 第 18 部分：重新审视左值与右值
 
-As this is work in progress with no design document to guide me,
-occasionally I need to remove code that I've already written and
-rewrite it to make it more general, or to fix shortcomings. That's
-the case for this part of the journey.
+由于这整个项目一直都在边做边演进，
+又没有一份完整设计文档来提前约束方向，
+所以我偶尔不得不把已经写好的代码拆掉重写，
+要么是为了把它改得更通用，
+要么是为了修掉之前架构上的短板。
+这一部分就是这样一个例子。
 
-We added our initial support for pointers in part 15 so that we could
-write code line this:
+我们在第 15 部分里给指针做了第一版支持，
+于是已经能写出这样的代码：
 
 ```c
   int  x;
@@ -15,26 +17,32 @@ write code line this:
   x= 12; y= &x; z= *y;
 ```
 
-That's all fine and good, but I knew that we would eventually have to
-support the use of pointers on the left-hand side of assignment statements,
-e.g.
+这些当然都没问题。
+但我也很清楚，
+我们迟早还得支持“把指针放在赋值语句左边”这种写法，
+例如：
 
 ```c
   *y = 14;
 ```
 
-To do this, we have to revisit the topic of
-[lvalues and rvalues](https://en.wikipedia.org/wiki/Value_(computer_science)#lrvalue).
-To revise, an *lvalue* is a value that is tied to a specific location, whereas
-an *rvalue* is a value that isn't. Lvalues are persistent in that we can
-retrieve their value in future instructions. Rvalues, on the other
-hand, are evanescent: we can discard them once their use is finished.
+为了做到这一点，
+我们就必须重新回到
+[lvalue 和 rvalue](https://en.wikipedia.org/wiki/Value_(computer_science)#lrvalue)
+这个话题上。
+简单回顾一下：
+*lvalue* 是绑定到某个具体存储位置上的值，
+而 *rvalue* 则不是。
+lvalue 具有持久性：
+以后我们还可以继续把它的值再取出来。
+相反，rvalue 是短暂的，
+一旦用完就可以直接丢弃。
 
-### Examples of Rvalues and Lvalues
+### rvalue 和 lvalue 的例子
 
-An example of an rvalue is an integer literal, e.g. 23. We can use it
-in an expression and then discard it afterwards. Examples of lvalues
-are locations in memory which we can *store into*, such as:
+rvalue 的一个例子是整数字面量，比如 23。
+我们可以在表达式里用它，之后就把它丢掉。
+而 lvalue 的例子则是那些“可以存值进去”的内存位置，例如：
 
 ```
    a            Scalar variable a
@@ -43,17 +51,20 @@ are locations in memory which we can *store into*, such as:
    (*d)[0]      Element zero of the array that d points to
 ```
 
-As I mentioned before, the names *lvalue* and *rvalue* come from the
-two sides of an assignment statement: lvalues are on the left, rvalues
-are on the right.
+正如我之前提过的，
+*lvalue* 和 *rvalue* 这两个名字，
+其实就来自赋值语句的左右两边：
+lvalue 在左边，rvalue 在右边。
 
-## Extending Our Notion of Lvalues
+## 扩展我们对 lvalue 的理解
 
-Right now, the compiler treats nearly everything as an rvalue. For
-variables, it retrieves the value from the variable's location. Our
-only nod to the concept of the lvalue is to mark identifiers on the
-left of an assignment as an A_LVIDENT. We manually deal with this in
-`genAST()`:
+到目前为止，
+编译器其实几乎把所有东西都当成 rvalue 来处理。
+对于变量，
+它会直接从变量所在位置取出值。
+我们唯一对“lvalue 概念”的照顾，
+就是把赋值左边的标识符标记成 `A_LVIDENT`。
+然后在 `gen.c` 的 `genAST()` 中手工处理它：
 
 ```c
     case A_IDENT:
@@ -65,23 +76,28 @@ left of an assignment as an A_LVIDENT. We manually deal with this in
       return (rightreg);
 ```
 
-which we use for statements like `a= b;`. But now we need to mark
-more than just identifiers on the left-hand side of an assignment
-as lvalues.
+这套逻辑可以应付 `a= b;` 这样的语句。
+但现在我们需要做得更多：
+赋值语句左边不再只是“标识符”，
+而是很多种可能的 lvalue 形式。
 
-It's also important to make it easy to generate assembly code in
-the process. While I was writing this part, I tried the idea of
-prepending a "A_LVALUE" AST node as the parent to a tree, to
-tell the code generator to output the lvalue version of the code for it
-instead of the rvalue version. But this turned out to be too late:
-the sub-tree was already evaluated and rvalue code for it had already
-been generated.
+此外，我们还得保证这个过程里生成汇编代码尽量顺手。
+在写这一部分时，
+我一度尝试过另一种设计：
+在树的外面额外挂一个父节点 `A_LVALUE`，
+用它告诉代码生成器：
+这棵子树现在应该输出 lvalue 版本的代码，
+而不是 rvalue 版本。
+结果事实证明这已经太晚了：
+因为那棵子树本身早就被求值过了，
+rvalue 代码已经生成出来了。
 
-### Yet Another AST Node Change
+### AST 节点又改了一次
 
-I'm loath to keep adding more fields to the AST node, but this is
-what I ended up doing. We now have a field to indicate if the node
-should generate lvalue code or rvalue code:
+我其实很不情愿再往 AST 节点里塞字段了，
+但最后还是这么干了。
+现在我们新增了一个字段，
+用来表示这个节点应该生成的是 lvalue 代码还是 rvalue 代码：
 
 ```c
 // Abstract Syntax Tree structure
@@ -93,51 +109,62 @@ struct ASTnode {
 };
 ```
 
-The `rvalue` field only holds one bit of information; later on, if I need
-to store other booleans, I will be able to use this as a bitfield.
+`rvalue` 字段其实只保存 1 bit 的信息；
+以后如果我还需要保存别的布尔属性，
+完全可以把它改造成一个 bitfield。
 
-Question: why did I make the field indicate the "rvalue"ness of the node
-and not the "lvalue"ness? After all, most of the nodes in our AST trees
-will hold rvalues and not lvalues. While I was reading Nils Holm's book
-on SubC, I read this line:
+问题是：为什么我把这个字段设计成“是否为 rvalue”，
+而不是“是否为 lvalue”？
+毕竟在 AST 里，大多数节点看起来明明更像是 rvalue。
+
+我当时在读 Nils Holm 关于 SubC 的书时，
+看到这样一句话：
 
 > Since an indirection cannot be reversed later, the parser assumes each
   partial expression to be an lvalue.
 
-Consider the parser working on the statement `b = a + 2`. After parsing
-the `b` identifier, we cannot yet tell is this is an lvalue or an rvalue.
-It's not until we hit the `=` token that we can conclude that it's an
-lvalue.
+考虑解析器处理语句 `b = a + 2` 的过程。
+在它刚解析到标识符 `b` 时，
+其实还无法判断这是一个 lvalue 还是 rvalue。
+只有等看到 `=` token 的那一刻，
+我们才能确定它是个 lvalue。
 
-Also, the C language allows assignments as expressions, so we can also
-write `b = c = a + 2`. Again, when we parse the `a` identifier, we
-can't tell if it's an lvalue or an rvalue until we parse the next token.
+而且 C 语言允许把赋值写成表达式，
+所以我们还能写出 `b = c = a + 2`。
+同样地，在解析到 `a` 这个标识符的时候，
+也还不能立刻知道它到底最终是 lvalue 还是 rvalue，
+必须继续看后面的 token。
 
-Therefore, I chose to assume each AST node to be an lvalue by default.
-Once we can definitely tell if a node is rvalue, we can then set the
-`rvalue` field to indicate this.
+因此，我最终选择默认把每个 AST 节点都先当成 lvalue。
+等到我们能够明确判断它必须是 rvalue 时，
+再把 `rvalue` 字段设上去。
 
-## Assignment Expressions
+## 赋值表达式
 
-I also mentioned that the C language allows assignments as expressions.
-Now that we have a clear lvalue/rvalue distinction, we can shift the
-parsing of assignments as statements and move the code into the
-expression parser. I'll cover this later.
+前面我也提到过：
+C 语言允许把赋值写成表达式。
+现在既然已经把 lvalue / rvalue 的区别理清楚了，
+我们就可以不再把赋值当成“语句解析器里的特殊逻辑”，
+而是把它真正搬进表达式解析器里。
+这一点我稍后会讲。
 
-It's now time to see what was done to the compiler code base to make
-this all happen. As always, we start with the tokens and the scanner
-first.
+现在先来看看，
+为了实现这一点，编译器代码到底被改成了什么样。
+和往常一样，先从 token 和扫描器说起。
 
-## Token and Scanning Changes
+## token 与扫描器的变化
 
-We have no new tokens or new keywords this time. But there is a change
-which affects the token code. The `=` is now a binary operator with an
-expression on each side, so we need to integrate it with the other
-binary operators.
+这次没有新增 token，也没有新增关键字。
+但有一个会影响 token 体系的变化：
+现在 `=` 变成了一个真正的二元运算符，
+它左右两边都接表达式，
+所以必须把它和其他二元运算符整合到一起。
 
-According to [this list of C operators](https://en.cppreference.com/w/c/language/operator_precedence), the `=` operator has much lower precedence than
-`+` or `-`. We there need to rearrange our list of operators and their
-precedences. In `defs.h`:
+根据
+[这份 C 运算符列表](https://en.cppreference.com/w/c/language/operator_precedence)，
+`=` 的优先级远低于 `+` 和 `-`。
+因此我们得重新排列运算符列表及其优先级。
+在 `defs.h` 中：
 
 ```c
 // Token types
@@ -148,8 +175,8 @@ enum {
   T_PLUS, T_MINUS, ...
 ```
 
-In `expr.c`, we need to update the code that holds the precedences for
-our binary operators:
+在 `expr.c` 中，
+则需要更新保存二元运算符优先级的代码：
 
 ```c
 // Operator precedence for each token. Must
@@ -163,21 +190,22 @@ static int OpPrec[] = {
 };
 ```
 
-## Changes to the Parser
+## 解析器的变化
 
-Now we have to remove the parsing of assignments as statements and
-make them into expressions. I also took the liberty of removing
-the "print" statement from the language, as we can now call `printint()`.
-So, in `stmt.c`, I've removed both `print_statement()` and
-`assignment_statement()`. 
+现在我们必须把“赋值作为语句”的解析逻辑删掉，
+转而把它变成“赋值作为表达式”。
+同时我也顺手把语言里的 `print` 语句去掉了，
+因为现在我们已经可以直接调用 `printint()`。
+于是，在 `stmt.c` 中，
+我删掉了 `print_statement()` 和 `assignment_statement()`。
 
-> I also removed the T_PRINT and 'print'
-  keywords from the language. And now that our concept of lvalues and
-  rvalues are different, I also removed the A_LVIDENT AST node type.
+> 我还同时删掉了语言中的 `T_PRINT` 以及 `'print'` 关键字。
+  此外，既然现在我们对 lvalue 和 rvalue 的理解已经不同了，
+  `A_LVIDENT` 这个 AST 节点类型也一并去掉了。
 
-For now, the statement parser in `single_statement()` in `stmt.c`
-assumes that what's coming up next is an expression if it doesn't
-recognise the first token:
+目前，`stmt.c` 中 `single_statement()` 的语句解析逻辑，
+如果识别不出开头 token 是什么，
+就会先假设“这可能是个表达式”：
 
 ```c
 static struct ASTnode *single_statement(void) {
@@ -193,9 +221,11 @@ static struct ASTnode *single_statement(void) {
 }
 ```
 
-This does mean that `2+3;` will be treated as a legal statement for now.
-We will fix this later. And in `compound_statement()` we also ensure
-that the expression is followed by a semicolon:
+这也意味着像 `2+3;` 这样的东西，
+暂时也会被当成合法语句。
+这个问题以后再修。
+同时在 `compound_statement()` 中，
+我们还会确保这种表达式后面确实跟了分号：
 
 ```c
     // Some statements must be followed by a semicolon
@@ -204,22 +234,26 @@ that the expression is followed by a semicolon:
       semi();
 ```
 
-## Expression Parsing
+## 表达式解析
 
-You might think that, now that `=` is marked as a binary expression
-operator and we have set its precedence, that we are all done. Not so!
-There are two things we have to worry about:
+你可能会觉得：
+既然 `=` 已经被标成了二元表达式运算符，
+而且优先级也已经设置好了，
+那是不是就完事了？还没有！
+我们还得额外解决两件事：
 
-1. We need to generate the assembly code for the right-hand rvalue
-   before the code for the left-hand lvalue. We used to do this in
-   the statement parser, and we'll have to do this in the expression
-   parser.
-2. Assignment expressions are *right associative*: the operator binds
-   more tightly to the expression on the right than to the left.
+1. 生成汇编时，必须先生成右边 rvalue 的代码，
+   再生成左边 lvalue 的代码。
+   之前这件事是在语句解析器里手工处理的，
+   现在得搬进表达式解析器。
+2. 赋值表达式是**右结合（right associative）**的：
+   这个运算符会更紧地绑定在右边表达式上。
 
-We haven't touched right associativity before. Let's look at an example.
-Consider the expression `2 + 3 + 4`. We can happily parse this from
-left to right and build the AST tree:
+之前我们还没有真正处理过“右结合”。
+先看一个例子。
+对于表达式 `2 + 3 + 4`，
+我们从左到右解析完全没问题，
+构造出来的 AST 会是：
 
 ```
       +
@@ -229,7 +263,9 @@ left to right and build the AST tree:
   2   3
 ```
 
-For the expression `a= b= 3`, if we do the above, we end up with the tree:
+但对于表达式 `a= b= 3`，
+如果照同样思路来，
+最终会得到这棵树：
    
 ```
       =
@@ -239,8 +275,10 @@ For the expression `a= b= 3`, if we do the above, we end up with the tree:
   a   b
 ```
 
-We don't want to do `a= b` before then trying to assign the 3 to this
-left sub-tree. Instead, what we want to generate is this tree:
+这显然不是我们想要的，
+因为那意味着先做 `a= b`，
+然后才试图把 3 赋给这整棵左子树。
+而我们真正想要的是下面这样：
 
 ```
         =
@@ -250,25 +288,33 @@ left sub-tree. Instead, what we want to generate is this tree:
     3   b
 ```
 
-I've reversed the leaf nodes to be in assembly output order. We first
-store 3 in `b`. Then the result of this assignment, 3, is stored in `a`.
+这里我把叶子节点反过来摆放了，
+使其更符合汇编输出顺序：
+先把 3 存进 `b`，
+然后这个赋值表达式的结果（也就是 3）
+再被存进 `a`。
 
-### Modifying the Pratt Parser
+### 修改 Pratt 解析器
 
-We are using a Pratt parser to correctly parse the precedences of our
-binary operators. I did a search to find out how to add right-associativity
-to a Pratt parser, and found this information in
-[Wikipedia](https://en.wikipedia.org/wiki/Operator-precedence_parser):
+我们当前用的是 Pratt parser 来正确解析二元运算符优先级。
+为了加入右结合支持，
+我专门查了一下 Pratt parser 该怎么处理，
+结果在
+[Wikipedia](https://en.wikipedia.org/wiki/Operator-precedence_parser)
+上找到这样一段说明：
 
 ```
    while lookahead is a binary operator whose precedence is greater than op's,
    or a right-associative operator whose precedence is equal to op's
 ```
 
-So, for right-associative operators, we test if the next operator
-has the same precedence as the operator we are up to. That's a simple
-modification to the parser's logic. I've introduced a new function
-in `expr.c` to determine if an operator is right-associative:
+也就是说，
+对于右结合运算符，
+当下一个运算符的优先级和当前运算符*相等*时，
+我们同样还要继续处理。
+这只是对解析器逻辑的一点小修改。
+于是我在 `expr.c` 中新增了一个函数，
+用来判断某个运算符是否是右结合的：
 
 ```c
 // Return true if a token is right-associative,
@@ -281,8 +327,10 @@ static int rightassoc(int tokentype) {
 
 ```
 
-In `binexpr()` we alter the while loop as mentioned before, and we
-also put in A_ASSIGN-specific code to swap the child trees around:
+随后在 `binexpr()` 中，
+我们按前面的规则改了 `while` 循环条件；
+同时针对 `A_ASSIGN` 加入了专门逻辑，
+把左右孩子交换顺序：
 
 ```c
 struct ASTnode *binexpr(int ptp) {
@@ -326,25 +374,32 @@ struct ASTnode *binexpr(int ptp) {
 }
 ```
 
-Notice also the code to explicitly mark the right-hand side of the
-assignment expression as an rvalue. And, for non assignments, both
-sides of the expression get marked as rvalues.
+还要注意这里有一段显式代码，
+会把赋值表达式右边那棵子树标记成 rvalue。
+而对于非赋值表达式，
+左右两边都会被标记成 rvalue。
 
-Scattered through `binexpr()` are a few more lines of code to
-explicitly set a tree to be an rvalue. These get performed when
-we hit a leaf node. For example the `a` identifier in `b= a;` needs
-to be marked as an rvalue, but we will never enter the body of the
-while loop to do this.
+在 `binexpr()` 的其他位置里，
+还散落着几行“显式把某棵树标成 rvalue”的代码。
+这些是在我们碰到叶子节点时才会触发的。
+例如在 `b= a;` 里，
+标识符 `a` 必须被标记成 rvalue，
+但这时我们未必会进入 `while` 循环体中去做这件事。
 
-## Printing Out the Tree
+## 把 AST 树打印出来
 
-That is the parser changes out of the road. We now have several nodes
-marked as rvalues, and some not marked at all. At this point, I realised
-that I was having trouble visualising the AST trees that get generated.
-I've written a function called `dumpAST()` in `tree.c` to print out
-each AST tree to standard output. It's not sophisticated. The compiler
-now has a `-T` command line argument which sets an internal flag,
-`O_dumpAST`. And the `global_declarations()` code in `decl.c` now does:
+到这里，解析器改动就差不多了。
+现在有些节点被标成了 rvalue，
+有些则完全没标。
+这时我意识到，
+自己已经很难在脑子里直观想清楚到底生成了什么 AST。
+
+因此我在 `tree.c` 中写了一个叫 `dumpAST()` 的函数，
+把每棵 AST 直接打印到标准输出上。
+它并不复杂。
+编译器现在支持一个命令行参数 `-T`，
+它会设置一个内部标志 `O_dumpAST`。
+而 `decl.c` 中 `global_declarations()` 现在会这样做：
 
 ```c
        // Parse a function declaration and
@@ -358,12 +413,13 @@ now has a `-T` command line argument which sets an internal flag,
 
 ```
 
-The tree dumper code prints out each node in the order tree traversal
-order, so the output isn't tree shaped. However, the indentation of
-each node indicates its depth in the tree.
+这个树打印器会按照树的遍历顺序输出每个节点，
+因此它并不会真正画出一棵“树形图”。
+不过每个节点的缩进深度，
+能够反映它在树中的层级。
 
-Let's take a look at some example AST trees for assignment expressions.
-We'll start with `a= b= 34;`:
+下面看几个赋值表达式的 AST 示例。
+先从 `a= b= 34;` 开始：
 
 ```
       A_INTLIT 34
@@ -374,12 +430,15 @@ We'll start with `a= b= 34;`:
 A_ASSIGN
 ```
 
-The 34 is small enough to be a char-sized literal, but it gets widened
-to match the type of `b`. `A_IDENT b` doesn't say "rvalue", so it's a
-lvalue. The value of 34 is stored in the `b` lvalue. This value is then
-stored in the `a` lvalue.
+34 足够小，所以最初它会被当成一个 `char` 大小的字面量，
+但随后它会被扩宽，
+以匹配 `b` 的类型。
+`A_IDENT b` 没有写 “rvalue”，
+所以它是个 lvalue。
+34 的值会先被存进 lvalue `b`，
+然后这个赋值表达式的结果再被存进 lvalue `a`。
 
-Now let's try `a= b + 34;`:
+再看 `a= b + 34;`：
 
 ```
     A_IDENT rval b
@@ -390,10 +449,12 @@ Now let's try `a= b + 34;`:
 A_ASSIGN
 ```
 
-You can see the "rval `b`" now, so `b`'s value is loaded into a register,
-whereas the result of the `b+34` expression is stored in the `a` lvalue.
+这次你就能看到 “rval `b`” 了，
+说明会先把 `b` 的值加载到寄存器中；
+而 `b+34` 这个表达式的结果，
+最终再被存进 lvalue `a`。
 
-Let's do one more, `*x= *y`:
+再来一个，`*x= *y`：
 
 ```
     A_IDENT y
@@ -403,17 +464,22 @@ Let's do one more, `*x= *y`:
 A_ASSIGN
 ```
 
-The identifier `y` is dereferenced and this rvalue is loaded. This is then
-stored in the lvalue which is `x` dereferenced.
+这里先对标识符 `y` 做解引用，
+取得这个 rvalue 并加载出来；
+然后再把它存进那个 lvalue，
+也就是“对 `x` 解引用后得到的位置”。
 
-## Converting The Above into Code
+## 把上面的树翻译成代码
 
-Now that the lvalue and rvalues nodes are clearly identified, we can turn
-our attention to how we translate each into assembly code. There are many
-nodes like integer literals, addition etc. which are clearly rvalues. It
-is only the AST node types which could possibly be lvalues that the code
-in `genAST()` in `gen.c` needs to worry about. Here is what I have for these
-node types:
+既然现在 lvalue 和 rvalue 节点已经区分得很清楚了，
+接下来就该看：
+如何把它们分别翻译成汇编代码。
+
+像整数字面量、加法之类的节点，
+本质上都只能是 rvalue，
+因此 `gen.c` 里的 `genAST()` 真正需要关心的，
+只是那些“有可能成为 lvalue”的 AST 节点类型。
+下面是我现在对这些节点的处理：
 
 ```c
     case A_IDENT:
@@ -441,10 +507,10 @@ node types:
         return (leftreg);
 ```
 
-### Changes to the x86-64 Code Generator
+### x86-64 代码生成器的变化
 
-The only change to `cg.c` is a function which allows us to store a value through
-a pointer:
+`cg.c` 中唯一新增的内容，
+是一个允许我们“通过指针去存值”的函数：
 
 ```c
 // Store through a dereferenced pointer
@@ -466,29 +532,38 @@ int cgstorderef(int r1, int r2, int type) {
 }
 ```
 
-which is nearly exactly the opposite of `cgderef()` which appears immediately
-before this new function.
+它几乎就是前面 `cgderef()` 的反向操作，
+而且就在那个函数后面。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-For this part of the journey, I think I took two or three different design
-directions, tried them, hit a dead end and backed out before I reached the
-solution described here. I know that, in SubC, Nils passes a single "lvalue"
-structure which holds the "lvalue"-ness of the node of the AST tree being 
-processed at any point in time. But his tree only holds one expression; the
-AST tree for this compiler holds one whole function's worth of nodes. And I'm
-sure that, if you looked in three other compilers, you would probably find
-three other solutions too.
+为了完成这一部分内容，
+我大概试过两三种不同设计方向，
+每种都走到一半才发现有死路，
+最后再回退出来，才得到这里描述的方案。
 
-There are many things that we could take on next. There are a bunch of C operators
-that would be relatively easy to add to the compiler. We have A_SCALE, so we
-could attempt structures. As yet, there are no local variables, which will need
-attending to at some point. And, we should generalise functions to have multiple
-arguments and the ability to access them.
+我知道在 SubC 里，
+Nils 是通过传递一个统一的“lvalue 结构体”，
+来保存当前正在处理的 AST 节点的“是否是 lvalue”信息。
+但他的 AST 只表示一条表达式；
+而我们这里的 AST 是整整一个函数级别的树。
+而且我敢肯定，
+如果你再去看另外三个编译器，
+多半还能找到另外三种不同的处理方法。
 
-In the next part of our compiler writing journey,
-I'd like to tackle arrays. This will be a combination of dereferencing,
-lvalues and rvalues, and scaling the array indices by the size of the
-array's elements. We have all the semantic components in place, but we'll
-need to add tokens, parsing and the actual index functionality. It should
-be an interesting topic like this one was. [Next step](../19_Arrays_pt1/Readme.md)
+接下来可以做的事情还有很多。
+不少 C 运算符其实都可以相对轻松地加进来。
+我们现在已经有了 `A_SCALE`，
+所以也许可以尝试结构体。
+到现在为止，局部变量还根本不存在，
+这迟早也得补上。
+此外，函数也还需要推广到支持多参数以及访问这些参数。
+
+在编译器编写之旅的下一部分中，
+我想先处理数组。
+它会把解引用、lvalue 与 rvalue、
+以及“按元素大小缩放数组索引”这些问题全部揉在一起。
+我们已经把所有语义组件准备得差不多了，
+接下来还需要补 token、解析逻辑，
+以及真正的下标访问功能。
+它应该会像这一部分一样，是个很有意思的话题。 [下一步](../19_Arrays_pt1/Readme.md)
