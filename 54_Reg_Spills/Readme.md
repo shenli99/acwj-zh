@@ -1,146 +1,245 @@
-# Part 54: Spilling Registers
+# 第 54 部分：寄存器溢出
 
-I've been putting off dealing with
-[register spilling](https://en.wikipedia.org/wiki/Register_allocation#Spilling)
-for a while because I knew the issue was going to be thorny. I think what I've
-done here is a first cut at the problem. It's naive, but it is a start.
+我一直拖着没去处理
+[寄存器溢出（register spilling）](https://en.wikipedia.org/wiki/Register_allocation#Spilling)
+这个问题，
+因为我知道它会相当棘手。
+我这次做出来的东西，
+更像是对这个问题的第一刀切入。
+它很朴素，
+甚至可以说有些笨，
+但至少算是开了个头。
 
-## The Issues
+## 这里的问题
 
-Registers are a limited commodity in most CPUs. They are the fastest
-storage units, and we use them to hold temporary results while we
-evaluate expressions. Once we have stored a result into a more permanent
-location (e.g. a memory location which represents a variable) we can
-free the in-use registers and re-use them.
+在大多数 CPU 里，
+寄存器都是一种稀缺资源。
+它们是速度最快的存储单元，
+而我们会用它们来保存表达式求值过程中的临时结果。
+一旦某个结果已经被写回到更持久的位置
+（例如代表某个变量的内存地址），
+我们就可以释放这些正在使用中的寄存器，
+然后再次复用它们。
 
-Once we hit expressions of large complexity we run out of enough registers
-to hold the intermediate results, and this prevents us from evaluating the
-expression.
+可一旦遇到复杂度较高的表达式，
+我们就会没有足够多的寄存器
+来保存中间结果，
+从而导致整个表达式无法继续求值。
 
-At present the compiler can allocate up to four registers. Yes, I know this
-is a bit artificial; however, there will always be an expression so complex
-that it can't be evaluated with a fixed number of registers.
+目前编译器最多只能分配四个寄存器。
+是的，
+我知道这多少有点人为设限；
+不过不管怎样，
+只要寄存器数量是固定的，
+就总会存在某个足够复杂的表达式，
+让它超出这个上限。
 
-Consider this expression, and remember the order of precedence of the C
-operators:
+看下面这个表达式，
+同时回忆一下 C 运算符的优先级：
 
 ```c
   int x= 5 || 6 && 7 | 8 & 9 << 2 + 3 * 4;
 ```
 
-Each operator on the right has higher precedence that the one on its left.
-Thus, we need to store 5 into a register, but then evaluate the rest of the
-expression. Now we store 6 into a register, and ditto. Now, 7 in a register
-and ditto. Now 8 in a register and ditto.
+右侧每个运算符的优先级
+都高于它左边那个运算符。
+因此，
+我们得先把 5 放进一个寄存器，
+然后继续去计算剩下的表达式。
+接着把 6 放进一个寄存器，
+继续。
+再把 7 放进一个寄存器，
+继续。
+再把 8 放进一个寄存器，
+继续。
 
-Oops! We now need to load 9 into a register, but all four registers are
-allocated. In fact, we'll need to allocate another *four* registers to
-evaluate this expression. What is the solution?
+糟了！
+现在我们还需要把 9 也装进寄存器，
+但四个寄存器都已经被分配出去了。
+事实上，
+要算完这个表达式，
+我们还得额外再拿出 *四个* 寄存器。
+那该怎么办？
 
-The solution is to 
-[spill registers](https://en.wikipedia.org/wiki/Register_allocation#Spilling)
-somewhere in main memory so that we free up a register. However, we also need
-to reload the spilled register at the point when we need it; this means
-that it must now be free to have its old value reloaded.
+办法就是把某些寄存器
+[溢出（spill）](https://en.wikipedia.org/wiki/Register_allocation#Spilling)
+到主内存里的某个位置，
+从而腾出寄存器。
+不过事情并不只是“存出去”这么简单：
+等我们后面还需要这个值时，
+还得把它重新装回来。
+而且重新装回来的那一刻，
+目标寄存器还必须是空闲的，
+这样才能恢复它原来的旧值。
 
-So, we need not only the ability to spill registers somewhere but also
-track which ones were spilled and when, and reload them as needed. It's
-tricky. You can see by the external link above that there is a tonne of
-theory behind optimal register allocation and spilling. This isn't going to
-be the place for that theory. I'll implement a simple solution and leave
-you the opportunity to improve the code based on the theory!
+所以，
+我们不仅要有办法把寄存器溢出到某个地方，
+还得追踪：
+到底哪些寄存器被溢出了、
+是在什么时候被溢出的、
+以及何时应该把它们重新装回来。
+这事并不轻松。
+从上面的外部链接里你也能看出来，
+围绕“最优寄存器分配与溢出”其实有一整套厚重理论。
+这里不会展开那部分理论。
+我会先实现一个简单方案，
+如果你愿意，
+以后完全可以基于那些理论把代码继续优化下去。
 
-Now, where do registers get spilled? We could allocate an arbitrary sized
-[memory heap](https://en.wikipedia.org/wiki/Memory_management#Dynamic_memory_allocation) and store all the spilled registers here. Generally, though, most
-register spill implementations use the existing stack. Why?
+那么，
+这些寄存器该溢出到哪里？
+我们当然可以自己分配一块任意大小的
+[内存堆（memory heap）](https://en.wikipedia.org/wiki/Memory_management#Dynamic_memory_allocation)，
+然后把所有溢出的寄存器都存进去。
+不过通常来说，
+大多数寄存器溢出的实现
+都会直接使用现有的栈（stack）。
+为什么？
 
-The answers are that we already have hardware-defined *push* and *pop*
-operations on the stack which are quick. We can (usually) rely on the
-operating system extending the stack size indefinitely. Also, we divide our
-stack up into stack frames, one per function. At the end of a function we
-can simply move the stack pointer, and we don't have to worry about popping
-off any registers that we spilled and somehow forgot about.
+原因有几个：
+我们已经有由硬件直接支持的 `push` 和 `pop`
+栈操作，
+速度很快；
+通常还可以依赖操作系统按需扩展栈空间；
+而且我们本来就会把栈划分成一个个栈帧（stack frame），
+每个函数一个。
+到了函数结束时，
+我们只需要移动栈指针，
+就不必担心那些被我们溢出到栈里、
+又不小心忘记逐个弹出的寄存器值。
 
-I'm going to use the stack for spilling registers in our compiler. 
-Let's look at the implications of spilling and of using the stack.
+所以在我们的编译器里，
+我准备使用栈来做寄存器溢出。
+先来看看，
+不管是“寄存器溢出”本身，
+还是“借助栈来实现寄存器溢出”，
+都会带来哪些影响。
 
-## The Implications
+## 这样做带来的影响
 
-To do register spilling, we need the ability to:
+要实现寄存器溢出，
+我们需要具备以下能力：
 
- + Choose and spill one register's value when we need to allocate a register
-   and none are free. It will be pushed on to the stack.
- + Reload the spilled register's value fron the stack when we need it.
- + Ensure that the register is free at the point when we need to reload
-   its value.
- + Before a function call, we need to spill all in-use registers. This is
-   because a function call is an expression. We need to be able to do
-   `2 + 3 * fred(4,5) - 7`, and still have the 2 and 3 in registers once
-   the function returns with its value.
- + Thus, we need to reload all the registers that we spilled before a
-   function call.
+ + 当我们需要分配寄存器、
+   但手头一个空闲寄存器都没有时，
+   能够选择某个寄存器并把它的值溢出出去。
+   具体做法就是把它压栈。
+ + 当后面需要这个寄存器的值时，
+   能够把它从栈上重新装回来。
+ + 在需要重装这个值的时刻，
+   保证对应寄存器是空闲的。
+ + 在函数调用之前，
+   我们需要把所有正在使用中的寄存器都先溢出。
+   因为函数调用本身也是表达式的一部分。
+   我们必须能正确处理
+   `2 + 3 * fred(4,5) - 7`
+   这种表达式，
+   并且在函数返回之后，
+   仍然保住寄存器里原先那 2 和 3 对应的值。
+ + 因而，
+   我们还得在函数调用结束之后，
+   把那些之前溢出的寄存器全部重新装回来。
 
-The above is what we need, regardless of the mechanism. Now let's bring
-the stack in and see how it will constrain us.
+上面这些能力，
+不管你最后采用什么具体机制，
+都必须具备。
+现在把“栈”拉进来，
+看看它会怎样约束我们的实现。
 
-If we can only push a register's value on the stack to spill it, and pop a
-register's value from the stack, this implies that we have to reload
-registers in the reverse order in which we spilled them on the stack.
-Is this something that we can guarantee? In other words, will we ever need
-to reload a register out of order? If so, the stack isn't going to be
-the mechanism that we need. Alternatively, can we write our compiler
-to ensure that the registers reload in reverse spill order?
+如果我们只能通过“把寄存器压栈”来溢出，
+又只能通过“把值从栈顶弹出”来恢复，
+那就意味着：
+我们必须严格按照和溢出相反的顺序来恢复寄存器。
+我们能保证这一点吗？
+换句话说，
+会不会出现某种情况，
+让我们不得不乱序地恢复某个寄存器？
+如果会，
+那栈就不是我们应该选择的机制。
+或者反过来说，
+我们能不能把编译器写成这样：
+始终保证寄存器恢复顺序
+就是溢出顺序的逆序？
 
-## Some Optimisations
+## 一些可做的优化
 
-If you have read the external link above, or you know something about
-register allocation already, then you know there are so many ways we
-can optimise register allocation and spilling. You probably know much
-more than I do, so don't giggle too much in the next section.
+如果你读过上面的外部链接，
+或者本来就对寄存器分配有些了解，
+那你大概知道：
+在寄存器分配和寄存器溢出这件事上，
+可优化的地方多得很。
+你也许比我懂得多得多，
+所以下一节如果写得很原始，
+还请不要笑得太大声。
 
-When we call a function, not all of our registers will be allocated
-already. Also, some registers will be used to hold some of the
-argument values for the function. Also, the function will likely
-return a value and hence destroy a register. Thus, we don't have to
-spill all of our registers onto the stack before we do a function call.
-If we were clever, we could work out which registers have to be spilled
-and only spill these ones.
+当我们调用一个函数时，
+并不是所有寄存器都一定已经被占满。
+此外，
+其中有些寄存器
+还会被拿去保存函数参数。
+而函数本身很可能还会返回一个值，
+从而破坏掉某个寄存器中的内容。
+因此，
+在函数调用之前，
+我们其实并不一定非要把所有寄存器都压到栈上。
+如果我们足够聪明，
+就可以分析出：
+到底哪些寄存器必须溢出，
+然后只处理这些寄存器即可。
 
-We can even take a step back and rewrite the AST tree to ease the pressure
-on our expression evaluation. For example, we could use a form of
-[strength reduction](https://en.wikipedia.org/wiki/Strength_reduction)
-to lower the number of registers allocated.
+甚至，
+我们还可以再往前走一步，
+直接重写 AST 树本身，
+从根源上减轻表达式求值时对寄存器的压力。
+比如，
+我们可以采用某种形式的
+[强度削减（strength reduction）](https://en.wikipedia.org/wiki/Strength_reduction)，
+来降低需要分配的寄存器数量。
 
-Consider the expression:
+看下面这个表达式：
 
 ```c
   2 + (3 + (4 + (5 + (6 + (7 + 8)))))
 ```
 
-The way it is written, we would have to load 2 into a register, start to
-evaluate the rest, load 3 into a register and ditto. We would end up with
-seven register allocations.
+按它现在这个写法，
+我们必须先把 2 装入寄存器，
+然后开始计算后面的部分；
+再把 3 装入寄存器，
+再继续。
+最终会分配出七个寄存器。
 
-However, addition is *commutative*, and therefore we can re-visualise the above
-expression as:
+但加法是 *commutative*（可交换）的，
+因此我们完全可以把上面的表达式
+重新看成这样：
 
 ```c
   ((((2 + 3) + 4) + 5) + 6) + 7
 ```
 
-Now we can evaluate `2+3` and put it into a register, add on `4` and still
-only need one register, etc. This is something that the
-[SubC](http://www.t3x.org/subc/) compiler does with its AST trees, and it
-is something that I'll implement later.
+这样一来，
+我们先计算 `2+3`，
+把结果放进一个寄存器，
+然后再继续加上 `4`，
+整个过程中仍然只需要一个寄存器，
+以此类推。
+这正是
+[SubC](http://www.t3x.org/subc/)
+编译器在处理 AST 树时会做的事情，
+我之后也会把类似思路实现进来。
 
-But for now, no optimisations. In fact, the spilling code is going to
-produce some pretty bad assembly. But at least the assembly that it
-produces works. Remember, "*premature optimisation is the root of all
-evil*" -- Donald Knuth.
+但现在先不做任何优化。
+事实上，
+接下来的这套寄存器溢出代码
+会生成相当难看的汇编。
+不过至少它能工作。
+记住那句老话：
+"*premature optimisation is the root of all evil*"
+也就是 Donald Knuth 那句著名的话。
 
-## The Nuts and Bolts
+## 具体实现细节
 
-Let's start with the most primitive new functions in `cg.c`:
+先看 `cg.c` 里最基础的两个新函数：
 
 ```c
 // Push and pop a register on/off the stack
@@ -153,35 +252,55 @@ static void popreg(int r) {
 }
 ```
 
-We can use these to spill and reload a register on the stack. Note that I
-didn't call them `spillreg()` and `reloadreg()`. They are general-purpose
-and we might use them for something else later.
+我们可以用它们
+把寄存器值压到栈上，
+或者再从栈里恢复出来。
+注意，
+我没有把它们命名成 `spillreg()` 和 `reloadreg()`。
+因为它们是通用操作，
+以后也许还会被拿去做别的事情。
 
-## The `spillreg`
+## `spillreg`
 
-Next up is a new static variable in `cg.c`:
+接下来是在 `cg.c` 里新增的一个静态变量：
 
 ```c
 static int spillreg=0;
 ```
 
-This is the next register that we will choose to spill on the stack. Each
-time we spill a register, we will increment `spillreg`. So it eventually
-will be 4, then 5, ... then 8, ... then 3002 etc.
+它表示：
+下一个将要被我们选中并溢出的寄存器编号。
+每次溢出一个寄存器后，
+我们都会把 `spillreg` 加一。
+因此它最终会变成 4、
+再变成 5、
+再变成 8、
+再变成 3002，
+如此继续。
 
-Question: why not reset it to zero when we got past the maximum number of
-registers? The answer is that, when we pop registers from the stack, we
-need to know when to *stop* popping registers. If we had used modulo
-arithmetic, we would pop in a fixed cycle and not know when to stop.
+问题来了：
+为什么不在它超过寄存器上限之后
+直接把它重置回零？
+原因在于：
+当我们从栈里把寄存器值重新弹出来时，
+必须知道“什么时候该停止继续弹”。
+如果我们始终只是做模运算循环，
+那我们就只会在固定的周期里不停转圈，
+却不知道真正该在什么时候停下来。
 
-That said, we must only spill registers from 0 to `NUMFREEREGS-1`, so we
-will do some modulo arithmetic in the following code.
+当然，
+我们实际能够拿来溢出的寄存器
+仍然只限于 `0` 到 `NUMFREEREGS-1`。
+因此在接下来的代码里，
+我们还是会做一点模运算。
 
-## Spilling One Register
+## 溢出一个寄存器
 
-We spill a register when there are no free registers. We will choose
-the `spillreg` (modulo NUMFREEREGS) register to spill. In the 
-`alloc_register()` function in `cg.c`:
+当没有空闲寄存器可分配时，
+我们就要溢出一个寄存器。
+被选中的寄存器会是
+`spillreg` 对 `NUMFREEREGS` 取模之后的那个。
+在 `cg.c` 的 `alloc_register()` 函数里：
 
 ```c
 int alloc_register(void) {
@@ -198,20 +317,27 @@ int alloc_register(void) {
 }
 ```
 
-We choose `spillreg % NUMFREEREGS` as the register to spill, and we
-`pushreg(reg)` to do so. We increment `spillreg` to be the next register to
-spill, and we return the newly spilled register number as that is now free.
-I also have a debug statement in there which I'll remove later.
+我们通过 `spillreg % NUMFREEREGS`
+选出要溢出的寄存器，
+然后调用 `pushreg(reg)` 把它压栈。
+接着把 `spillreg` 递增，
+表示下次该轮到下一个寄存器被溢出。
+最后把刚刚腾出来的这个寄存器号返回，
+因为它现在已经重新可用了。
+里面那条调试输出，
+我之后会删掉。
 
-## Reloading One Register
+## 重新装回一个寄存器
 
-We can only reload a register when a) it becomes free and b) its the
-most recent register that was spilled onto the stack. Here is where
-we insert an implicit assumption into our code: we must always reload
-the most recently-spilled register. We had better make sure that the
-compiler can keep this promise.
+一个寄存器只有在两种条件都满足时，
+才能被重新装回：
+一是它此时已经空闲；
+二是它正好是“最近一次被溢出到栈上的那个寄存器”。
+这里其实就埋了一个隐含前提：
+我们必须始终按“最近一次溢出的寄存器优先恢复”的方式来工作。
+所以我们最好确保编译器真的能守住这个承诺。
 
-The new code in `free_register()` in `cg.c` is:
+`cg.c` 里 `free_register()` 的新代码如下：
 
 ```c
 static void free_register(int reg) {
@@ -227,16 +353,23 @@ static void free_register(int reg) {
 }
 ```
 
-We simply undo the most recent spill, and decrement `spillreg`. Note that
-this is why we didn't store `spillreg` with a modulo value. Once it hits
-zero, we know that there are no spilled registers on the stack and there
-is no point in trying to pop a register value from the stack.
+我们只是简单地把最近一次的溢出撤销掉，
+同时把 `spillreg` 减一。
+也正因为如此，
+我们前面才没有把 `spillreg`
+直接存成模运算之后的值。
+当它回到零时，
+我们就知道：
+栈上已经没有任何“等待恢复的寄存器”了，
+也就没必要再尝试从栈里弹出寄存器值。
 
-## Register Spills Before a Function Call
+## 函数调用前的寄存器溢出
 
-As I mentioned before, a clever compiler would determine which registers
-*had* to be spilled before a function call. This is not a clever
-compiler, and so we have these new functions:
+前面提到过：
+一个足够聪明的编译器，
+应该能够判断“函数调用前到底哪些寄存器 *必须* 先溢出”。
+但这不是一个聪明的编译器，
+所以我们现在新增了下面这些函数：
 
 ```c
 // Spill all registers on the stack
@@ -256,15 +389,22 @@ static void unspill_all_regs(void) {
 }
 ```
 
-At this point, while you are either laughing or crying (or both), I'll
-remind you of a Ken Thompson quote: "*When in doubt, use brute force.*"
+如果你此时正在边看边笑，
+或者边看边哭，
+又或者两者都有，
+那我就顺手提醒你一句 Ken Thompson 的名言：
+"*When in doubt, use brute force.*"
 
-## Keeping Our Assumptions Intact
+## 保住我们的隐含假设
 
-We have an implicit assumption built into this code: any reloaded register
-was the one last spilled. We had better check that this is the case.
+这套代码里有一个隐含前提：
+任何被重新装回的寄存器，
+都必须是“最后一个被溢出的寄存器”。
+我们最好验证一下，
+事情确实会按这个规则发生。
 
-For binary expressions, `genAST()` in `gen.c` does this:
+对于二元表达式，
+`gen.c` 里的 `genAST()` 会这样做：
 
 ```c
   // Get the left and right sub-tree values
@@ -276,17 +416,22 @@ For binary expressions, `genAST()` in `gen.c` does this:
   }
 ```
 
-We allocate the register for the left-hand expression first, then the
-register for the right-hand expression. If we have to spill
-registers, then the register for the right-hand expression will be the most
-recently-spilled register.
+我们会先为左侧表达式分配寄存器，
+再为右侧表达式分配寄存器。
+如果这期间不得不发生寄存器溢出，
+那么“右侧表达式所对应的寄存器”
+就会是最近一次被溢出的那个寄存器。
 
-Therefore, we had better *free* the register for the right-hand expression
-first, to ensure that any spilled value will get reloaded back into this
-register.
+因此，
+我们最好也 *先释放* 右侧表达式的那个寄存器，
+这样一来，
+若它之前确实是通过溢出腾出来的，
+它原本保存的旧值
+就能被正确地恢复回这个寄存器中。
 
-I've gone through `cg.c` and made some modifications to the binary
-expression generators to do this. An example is `cgadd()` in `cg.c`:
+我已经把 `cg.c` 里那些二元表达式生成器
+大致都按这个思路改过一遍。
+例如 `cg.c` 里的 `cgadd()`：
 
 ```c
 // Add two registers together and return
@@ -298,39 +443,56 @@ int cgadd(int r1, int r2) {
 }
 ```
 
-The code used to add into `r2`, free `r1` and return `r2`. Not good, but
-luckily addition is commutative. We can save the result in either register,
-so now `r1` returns the result and `r2` is freed. If if was spilled, it
-will get its old value back.
+过去的实现会把结果加到 `r2` 里，
+释放 `r1`，
+最后返回 `r2`。
+这可不行。
+不过幸运的是加法是可交换的，
+所以结果放在任一寄存器都可以。
+现在结果保存在 `r1`，
+而 `r2` 被释放。
+如果 `r2` 之前是被溢出后才临时空出来的，
+那它原来的值也会随之被正确恢复。
 
-I *hope* that I've done this everywhere that is needed, and I *hope*
-that our assumption is not satisfied, but I'm not completely sure yet.
-We will have to do a lot of testing to be reasonably satisfied.
+我 *希望* 自己已经把所有该改的地方都改到了，
+也 *希望* 我们这个隐含假设始终成立，
+但我现在还不能百分之百确定。
+接下来还得做大量测试，
+才敢说基本放心。
 
-## Changes to Function Calls
+## 对函数调用的修改
 
-We now have the spill/reload nuts and bolts in place. For ordinary
-register allocations and frees, the above code will spill and reload
-as required. We also try to ensure that we free the most recently
-spilled register.
+现在，
+普通寄存器分配与释放所需要的
+溢出/恢复基础设施已经都有了。
+对一般的寄存器分配与释放来说，
+上面的代码会在必要时自动做寄存器溢出与恢复。
+同时我们也尽量保证：
+总是优先释放最近一次溢出所对应的寄存器。
 
-The last thing we need to do is spill the registers before a function call
-and reload them afterwards. There is a wrinkle: the function may be part of
-an expression. We need to:
+接下来最后还要做的一件事，
+就是在函数调用前溢出寄存器，
+并在函数调用后把它们恢复回来。
+这里还有一个小弯子：
+函数调用本身可能嵌在某个更大的表达式里。
+因此我们需要：
 
-  1. Spill the registers first.
-  1. Copy the arguments to the function (using the registers).
-  1. Call the function.
-  1. Reload the registers before we
-  1. Copy the register's return value.
+  1. 先把寄存器溢出出去。
+  1. 把函数参数拷贝过去
+     （这个过程也会使用寄存器）。
+  1. 调用函数。
+  1. 在继续后续处理之前先恢复寄存器。
+  1. 再拷贝函数返回值所在的寄存器。
 
-If we do the last two out of order, we will lose the returned value
-as we reload all the old registers.
+后面两步如果顺序做反了，
+我们在恢复那些旧寄存器时
+就会把函数刚返回出来的值给覆盖掉。
 
-To make the above happen, I've had to share the spill/reload duties
-between `gen.c` and `cg.c` as follows.
+为了实现上面的流程，
+我不得不把“溢出/恢复”的职责
+拆给 `gen.c` 和 `cg.c` 两边协作完成。
 
-In `gen_funccall()` in `gen.c`:
+在 `gen.c` 的 `gen_funccall()` 里：
 
 ```c
 static int gen_funccall(struct ASTnode *n) {
@@ -347,7 +509,9 @@ static int gen_funccall(struct ASTnode *n) {
 }
 ```
 
-which does steps 1, 2 and 3: spill, copy, call. And in `cgcall()` in `cg.c`:
+它负责第 1、2、3 步：
+溢出、拷贝参数、调用函数。
+而在 `cg.c` 的 `cgcall()` 里：
 
 ```c
 int cgcall(struct symtable *sym, int numargs) {
@@ -368,12 +532,16 @@ int cgcall(struct symtable *sym, int numargs) {
 }
 ```
 
-which does the final two steps: reload and copy the return value.
+它负责最后两步：
+先恢复寄存器，
+再把返回值拷到一个新分配的寄存器里。
 
-## Example Time
+## 来看例子
 
-Here are some examples which cause register spills: function calls and
-complex expressions. We'll start with `tests/input136.c`:
+下面是一些会触发寄存器溢出的例子：
+函数调用，
+以及复杂表达式。
+先看 `tests/input136.c`：
 
 ```c
 int add(int x, int y) {
@@ -388,9 +556,14 @@ int main() {
 }
 ```
 
-`add()` needs to be treated as an expression. We put 3 into a register,
-and spill all the registers before we call `add(2,3)`. We reload the
-registers before we get the return value. The assembly code is:
+`add()`
+必须被当成表达式来处理。
+我们先把 3 放进一个寄存器，
+然后在调用 `add(2,3)` 之前
+把所有寄存器都溢出到栈上。
+恢复这些寄存器之后，
+再去读取函数返回值。
+对应生成的汇编如下：
 
 ```
         movq    $3, %r10        # Get 3 into %r10
@@ -411,16 +584,20 @@ registers before we get the return value. The assembly code is:
         imulq   %r11, %r10      # Multiply 3 * add(2,3)
 ```
 
-Yes, there is plenty of scope for optimisation here. KISS, though.
+没错，
+这里的优化空间还很大。
+不过先遵循 KISS 原则吧。
 
-In `tests/input137.c`, there is this expression:
+在 `tests/input137.c` 里，
+还有这样一个表达式：
 
 ```c
   x= a + (b + (c + (d + (e + (f + (g + h))))));
 ```
 
-which requires eight registers and so we'll need to spill four of them. The
-generated assembly code is:
+它总共需要八个寄存器，
+因此我们不得不额外溢出其中四个。
+生成的汇编如下：
 
 ```
         movslq  a(%rip), %r10
@@ -449,15 +626,21 @@ generated assembly code is:
         movl    %r10d, -4(%rbp)
 ```
 
-and overall we end up with the correct expression evaluation.
+总之，
+它最终能够正确地完成这个表达式的求值。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-Register allocating and spilling is hard to get right, and there is a
-lot of optimisation theory which can be brought to bear. I've implemented
-quite a naive approach to register  allocating and spilling. It will work
-but there is substantial room for improvement.
+寄存器分配和寄存器溢出
+都是很难彻底做对的东西，
+而且背后还可以引入大量优化理论。
+我这次实现的寄存器分配与寄存器溢出方案
+相当朴素。
+它能工作，
+但仍然有很大的提升空间。
 
-While doing the above, I also fixed the problem with `&&` and `||`. I've
-decided to write these changes up in the next part, even though the
-code here already has these changes. [Next step](../55_Lazy_Evaluation/Readme.md)
+在做上面这些工作的同时，
+我也顺手修好了 `&&` 和 `||` 的问题。
+不过我决定把这一部分内容
+放到下一章单独来写，
+尽管这一章对应的代码里其实已经包含了那些改动。 [下一步](../55_Lazy_Evaluation/Readme.md)
