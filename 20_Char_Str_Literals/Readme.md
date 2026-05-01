@@ -1,34 +1,40 @@
-# Part 20: Character and String Literals
+# 第 20 部分：字符与字符串字面量
 
-I've been wanting to print out "Hello world" with our compiler for quite a
-while so, now that we have pointers and arrays, it's time in this part of
-the journey to add character and string literals.
+我早就想用我们的编译器打印出 `"Hello world"` 了。
+既然现在已经有了指针和数组，
+那这部分正好可以把字符字面量（character literal）
+和字符串字面量（string literal）加进来。
 
-These are, of course, literal values (i.e. immediately visible). Character
-literals have the definition of a single character surrounded by single
-quotes. String literals have a sequence of characters surrounded by
-double quotes.
+它们当然都属于字面量（literal value），
+也就是“源码里直接写出来的值”。
+字符字面量是由单引号包起来的单个字符；
+字符串字面量则是由双引号包起来的一串字符。
 
-Now, seriously, character and string literals in C are just completely
-crazy. I'm only going to implement the most obvious backslashed-escaped
-characters. I'm also going to borrow the character and string literal
-scanning code from SubC to make my life easier.
+说真的，
+C 语言里的字符和字符串字面量设计得相当疯狂。
+我这里只打算实现最直观的那些反斜杠转义字符。
+另外，为了省事，
+我还会直接借用 SubC 里扫描字符与字符串字面量的代码。
 
-This part of the journey is going to be short, but it will end with
-"Hello world".
+这一部分会比较短，
+但最后它会让我们真的打印出 `"Hello world"`。
 
-## A New Token
+## 一个新 token
 
-We need a single new token for our language: T_STRLIT. This is very similar
-to T_IDENT in that the text associated with the token is stored in the
-global `Text` and not in the token structure itself.
+我们的语言只需要新增一个 token：`T_STRLIT`。
+它和 `T_IDENT` 很像，
+因为和这个 token 关联的文本内容
+也是保存在全局 `Text` 里，
+而不是放在 token 结构体本身。
 
-## Scanning Character Literals
+## 扫描字符字面量
 
-A character literal starts with a single quote, is followed by the
-definition of a single character and ends with another single quote.
-The code to interpret that single character is complicated, so let's
-modify `scan()` in `scan.c` to call it:
+字符字面量以一个单引号开始，
+中间是单个字符的定义，
+最后再以一个单引号结束。
+解释这个字符本身的代码稍微有点复杂，
+所以我们修改 `scan.c` 里的 `scan()`，
+让它去调用专门的逻辑：
 
 ```c
       case '\'':
@@ -42,13 +48,15 @@ modify `scan()` in `scan.c` to call it:
       break;
 ```
 
-We can treat a character literal as an integer literal of type `char`;
-that is, assuming that we limit ourselves to ASCII and don't try to
-deal with Unicode. That's what I'm doing here.
+我们可以把字符字面量当作“类型为 `char` 的整数字面量”来处理；
+前提当然是我们把范围限制在 ASCII 内，
+而不去碰 Unicode。
+我这里采用的就是这种做法。
 
-### The Code for `scanch()`
+### `scanch()` 的代码
 
-The code for the `scanch()`function comes from SubC with a few simplifications:
+`scanch()` 的代码来自 SubC，
+我只做了少量简化：
 
 ```c
 // Return the next character from a character
@@ -79,14 +87,16 @@ static int scanch(void) {
 }
 ```
 
-The code recognises most of the escaped character sequences, but it doesn't
-try to recognise octal character codings or other difficult sequences.
+这段代码能够识别大多数常见的转义字符序列，
+但不会去支持八进制字符编码之类更麻烦的情况。
 
-## Scanning String Literals
+## 扫描字符串字面量
 
-A string literal starts with a double quote, is followed by zero or more
-characters and ends with another double quote. As with character literals,
-we need to call a separate function in `scan()`:
+字符串字面量以双引号开始，
+后面跟着零个或多个字符，
+最后再以双引号结束。
+和字符字面量一样，
+我们也需要在 `scan()` 中调用单独的函数：
 
 ```c
     case '"':
@@ -96,8 +106,9 @@ we need to call a separate function in `scan()`:
       break;
 ```
 
-We create one of the new T_STRLIT and scan the string into the `Text` buffer.
-Here is the code for `scanstr()`:
+我们创建一个新的 `T_STRLIT`，
+并把字符串扫描到 `Text` 缓冲区中。
+下面是 `scanstr()` 的代码：
 
 ```c
 // Scan in a string literal from the input file,
@@ -122,16 +133,21 @@ static int scanstr(char *buf) {
 }
 ```
 
-I think the code is straight-forward. It NUL terminates the string that is
-scanned in, and ensures that it doesn't overflow the `Text` buffer. Note
-that we use the `scanch()` function to scan in individual characters.
+我觉得这段代码很直接。
+它会给扫描出来的字符串补上 NUL 终止符，
+并确保不会写爆 `Text` 缓冲区。
+注意这里逐个字符扫描时，
+我们复用了前面的 `scanch()`。
 
-## Parsing String Literals
+## 解析字符串字面量
 
-As I mentioned, character literals are treated as integer literals which
-we already deal with. Where can we have string literals? Going back to the
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)
-written by Jeff Lee in 1985, we see:
+正如前面提到的，
+字符字面量会被当作整数字面量处理，
+而这部分我们早就支持了。
+那字符串字面量可以出现在什么位置？
+回到 Jeff Lee 在 1985 年写的
+[C 的 BNF 语法](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)，
+我们可以看到：
 
 ```
 primary_expression
@@ -142,7 +158,8 @@ primary_expression
         ;
 ```
 
-and thus we know that we should modify `primary()` in `expr.c`:
+因此我们知道，
+应该去修改 `expr.c` 里的 `primary()`：
 
 ```c
 // Parse a primary factor and return an
@@ -161,21 +178,25 @@ static struct ASTnode *primary(void) {
     break;
 ```
 
-Right now, I'm going to make an anonymous global string. It needs to
-have all the characters in the string stored in memory, and we also need
-a way to refer to it. I don't want to pollute the symbol table with this
-new string, so I've chosen to allocate a label for the string and store
-the label's number in the AST node for this string literal. We also need
-a new AST node type: A_STRLIT. The label is effectively the base of the
-array of characters in the string, and thus it should be of type P_CHARPTR.
+现在，
+我准备把字符串字面量实现成一个“匿名全局字符串”。
+它需要把字符串里的所有字符都实际存到内存里，
+同时我们还得有办法引用它。
+我不想因为这种字符串去污染符号表，
+所以这里的做法是：
+给这个字符串分配一个 label，
+再把这个 label 的编号存进该字符串字面量对应的 AST 节点。
+同时还需要新增一种 AST 节点类型：`A_STRLIT`。
+这个 label 本质上就是字符串字符数组的基地址，
+因此它的类型应该是 `P_CHARPTR`。
 
-I'll come back to the generation of the assembly output, done by
-`genglobstr()` soon.
+稍后我会再讲负责生成汇编输出的 `genglobstr()`。
 
-### An Example AST Tree
+### 一个 AST 树示例
 
-Right now, a string literal is treated as an anonymous pointer. Here's
-the AST tree for the statement:
+目前，
+字符串字面量会被当作匿名指针来处理。
+下面是这条语句对应的 AST：
 
 ```c
   char *s;
@@ -186,13 +207,16 @@ the AST tree for the statement:
 A_ASSIGN
 ```
 
-They are both the same type, so there is no need to scale or widen anything.
+它们两边的类型完全一致，
+因此不需要做缩放或扩宽。
 
-## Generating the Assembly Output
+## 生成汇编输出
 
-In the generic code generator, there are very few changes. We need a function
-to generate the storage for a new string. We need to allocate a label for it
-and then output the string's contents (in `gen.c`):
+在通用代码生成器（generic code generator）里，
+需要改的地方很少。
+我们需要一个函数来为新字符串生成存储空间：
+先为它分配一个 label，
+再输出这个字符串的内容（位于 `gen.c`）：
 
 ```c
 int genglobstr(char *strvalue) {
@@ -202,19 +226,21 @@ int genglobstr(char *strvalue) {
 }
 ```
 
-And we need to recognise the A_STRLIT AST node type and generate assembly
-code for it. In `genAST()`,
+同时我们还要识别 `A_STRLIT` 这种 AST 节点类型，
+并为它生成汇编代码。
+在 `genAST()` 里：
 
 ```c
     case A_STRLIT:
         return (cgloadglobstr(n->v.id));
 ```
 
-## Generating the x86-64 Assembly Output
+## 生成 x86-64 汇编输出
 
-We finally get to the actuall new assembly output functions. There are
-two: one to generate the string's storage and the other to load the
-base address of the string.
+终于来到真正新增的汇编输出函数了。
+一共有两个：
+一个负责生成字符串的存储空间，
+另一个负责把这个字符串的基地址加载出来。
 
 ```c
 // Generate a global string and its start label
@@ -237,13 +263,14 @@ int cgloadglobstr(int id) {
 }
 ```
 
-Going back to our example:
+回到刚才的例子：
+
 ```c
   char *s;
   s= "Hello world";
 ```
 
-The assembly output for this is:
+它生成的汇编输出是：
 
 ```
 L2:     .byte   72              # Anonymous string
@@ -263,12 +290,14 @@ L2:     .byte   72              # Anonymous string
         movq    %r8, s(%rip)    # and store in s
 ```
 
-## Miscellaneous Changes
+## 其他零碎改动
 
-When writing the test program for this part of the journey, I uncovered
-another bug in the existing code. When scaling an integer value to
-match the type size that a pointer points to, I forgot to do nothing
-when the scale was 1. The code in `modify_type()` in `types.c` is now:
+在给这一部分写测试程序时，
+我又挖出了旧代码里的另一个 bug。
+当把一个整数值按“指针所指向类型的大小”去做缩放时，
+如果缩放因子是 1，
+我原本忘记写“什么都不做”的分支了。
+现在 `types.c` 里 `modify_type()` 的代码变成了：
 
 ```c
     // Left is int type, right is pointer type and the size
@@ -282,12 +311,14 @@ when the scale was 1. The code in `modify_type()` in `types.c` is now:
     }
 ```
 
-I'd left the `return (tree)` out, thus returning a NULL tree when
-trying to scale `char *` pointers.
+之前我漏掉了 `return (tree)`，
+结果在尝试缩放 `char *` 指针时，
+函数会直接返回一个 `NULL` 树。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-I'm so glad that we can now output text:
+我非常高兴，
+因为我们现在终于能输出文本了：
 
 ```
 $ make test
@@ -298,10 +329,11 @@ cc -o out out.s lib/printint.c
 Hello world
 ```
 
-Most of the work this time was extending our lexical scanner to deal
-with the character and string literal delimiters and the escaping of
-characters inside them. But there was some work done on the code
-generator, too.
+这次的大部分工作，
+都在于扩展词法扫描器，
+让它能处理字符与字符串字面量的定界符，
+以及其中字符的转义规则。
+不过代码生成器这边也确实做了一些改动。
 
-In the next part of our compiler writing journey, we'll add some
-more binary operators to the language that the compiler recognises. [Next step](../21_More_Operators/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会给语言再补上一些新的二元运算符。 [下一步](../21_More_Operators/Readme.md)

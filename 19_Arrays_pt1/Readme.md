@@ -1,13 +1,13 @@
-# Part 19: Arrays, part 1
+# 第 19 部分：数组，第 1 部分
 
-> *My lecturer for the first year of university was a Scotsman with a
-  very heavy accent. Around the third or fourth week of first term,
-  he began saying "Hurray!" a lot in class. It took me about twenty
-  minutes to work out he was saying "array".*
+> *我大学一年级的讲师是一位苏格兰人，
+  口音非常重。大一第一学期大概到第三或第四周时，
+  他上课经常说 “Hurray!”。我花了差不多二十分钟
+  才反应过来，他说的其实是 “array”。*
 
-So, we begin the work to add arrays to the compiler in this part of
-the journey. I sat down and wrote a small C program to see what
-sort of functionality I should try to implement:
+这一部分里，我们开始给编译器加入数组（array）支持。
+我先坐下来写了一个小的 C 程序，
+看看自己到底应该尝试实现哪些功能：
 
 ```c
   int ary[5];               // Array of five int elements
@@ -20,38 +20,45 @@ sort of functionality I should try to implement:
   ptr[4]= 72;               // Use ptr like an array, ptr[4] is an lvalue
 ```
 
-Arrays are *like* pointers in that we can dereference both a pointer
-and an array with the "[ ]" syntax to get access to a specific element.
-We can use the array's name as a "pointer" and save the array's base
-into a pointer. We can get the address of an element in the array.
-But one thing we can't do is "overwrite" the base of an array
-with a pointer: the elements of the array are mutable, but the base
-address of the array is not mutable.
+数组和指针（pointer）很像，
+因为无论是指针还是数组，
+都可以用 `[ ]` 语法解引用（dereference）到某个具体元素。
+我们可以把数组名当作“指针”来用，
+把数组基地址存进一个指针变量里；
+也可以拿到数组中某个元素的地址。
+但有一件事不能做：
+不能用一个指针去“覆盖”数组的基地址。
+数组的元素是可变的，
+但数组的基地址本身不可变。
 
-In this part of the journey, I'll add in:
+在这一部分里，我会加入：
 
- + declarations of array with a fixed size but no initialisation list
- + array indexes as rvalues in an expression
- + array indexes as an lvalue in an assignment
+ + 固定大小、但没有初始化列表的数组声明
+ + 表达式里作为右值（rvalue）的数组下标
+ + 赋值语句里作为左值（lvalue）的数组下标
 
-I also won't implement more than one dimension in each array.
+另外，我暂时不会实现多维数组。
 
-## Parentheses in Expressions
+## 表达式中的括号
 
-At some point I want to try this out:  `*(ptr + 2)` which should
-end up being the same as `ptr[2]`. But we haven't allowed parentheses
-in expressions yet, so now it's time to add them.
+我一直想试一下这样的写法：`*(ptr + 2)`，
+它最终应该和 `ptr[2]` 等价。
+但我们的表达式目前还不支持括号，
+所以现在正是把它补上的时候。
 
-### C Grammar in BNF
+### C 的 BNF 语法
 
-On the web there is a page with the
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)
-written by Jeff Lee in 1985. I like to reference it to give me ideas
-and to confirm that I'm not making too many mistakes.
+网上有一份
+[C 的 BNF 语法](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)，
+由 Jeff Lee 在 1985 年写成。
+我很喜欢拿它来做参考，
+既能给我一些实现思路，
+也能帮助我确认自己没有犯太离谱的错误。
 
-One thing to note is that, instead of implemnting the priority of
-the binary expression operators in C, the grammar uses recursive
-definitions to make the priorities explicit. Thus:
+这里有一点值得注意：
+它并不是直接用“优先级表”来实现 C 里二元表达式运算符的优先级，
+而是通过递归定义把优先级关系显式写进语法里。
+例如：
 
 ```
 additive_expression
@@ -61,11 +68,12 @@ additive_expression
         ;
 ```
 
-shows that we descend into "multiplicative_expression" while we
-are parsing an "additive_expression", thus giving the '*' and '/'
-operators a higher precedence than the '+' and '-' operators.
+这表示：
+当我们在解析 `additive_expression` 时，
+会继续下降去解析 `multiplicative_expression`，
+因此 `'*'` 和 `'/'` 的优先级天然高于 `'+'` 和 `'-'`。
 
-Right at the top of the expression precedence hierarchy is:
+而在整个表达式优先级层级的最顶部，是：
 
 ```
 primary_expression
@@ -76,15 +84,17 @@ primary_expression
         ;
 ```
 
-We already have a `primary()` function which is called to find
-T_INTLIT and T_IDENT tokens, and this conforms to Jeff Lee's C grammar.
-It's thus the perfect place to add the parsing of parentheses in
-expressions.
+我们已经有一个 `primary()` 函数，
+负责识别 `T_INTLIT` 和 `T_IDENT` token，
+这和 Jeff Lee 的 C 语法刚好吻合。
+因此，把“带括号的表达式”加进来，
+最合适的地方就是这里。
 
-We already have T_LPAREN and T_RPAREN as tokens in our language, so
-there is no work to be done in the lexical scanner.
+我们的语言里本来就已经有 `T_LPAREN` 和 `T_RPAREN` 这两个 token，
+所以词法扫描器（lexical scanner）这边完全不用改。
 
-Instead, we simply modify `primary()` to do the extra parsing:
+我们只需要稍微修改一下 `primary()`，
+额外做这段解析：
 
 ```c
 static struct ASTnode *primary(void) {
@@ -114,14 +124,19 @@ static struct ASTnode *primary(void) {
 }
 ```
 
-And that's it! Just a few extra lines to add parentheses in expression.
-You'll notice that I explicitly call `rparen()` in the new code and
-return instead of breaking out of the switch statement. If the code
-had left the switch statement, the `scan(&Token);` before the final
-return would not strictly enforce the requirement for a ')' token
-to match the opening '(' token.
+就这些！只需要多加几行代码，
+表达式里的括号就支持了。
+你会注意到，
+我在新代码里显式调用了 `rparen()`，
+并且直接 `return`，
+而不是跳出 `switch`。
+如果离开 `switch` 之后再继续执行，
+尾部那句 `scan(&Token);`
+就不能严格保证：
+当前这个 `')'` 一定是和前面的 `'('` 成对匹配的那个 token。
 
-The `test/input19.c` test checks that parentheses are working:
+`test/input19.c` 里有一段测试代码，
+专门检查括号是否正常工作：
 
 ```c
   a= 2; b= 4; c= 3; d= 2;
@@ -129,14 +144,16 @@ The `test/input19.c` test checks that parentheses are working:
   printint(e);
 ```
 
-and it should print out 30, i.e. `6 * 5`.
+它应该输出 30，也就是 `6 * 5` 的结果。
 
-## Symbol Table Changes
+## 符号表的变更
 
-We have scalar variables (with only one value) and functions in our
-symbol table. It's time to add arrays. Later on, we'll want to
-get the number of elements in each array with the `sizeof()` operator.
-Here are the changes in `defs.h`:
+目前我们的符号表里有标量变量（scalar variable，仅保存一个值）
+和函数（function）。
+现在该把数组也加进去了。
+另外，后面我们还会希望通过 `sizeof()` 运算符
+拿到每个数组的元素个数。
+下面是 `defs.h` 里的修改：
 
 ```c
 // Structural types
@@ -154,10 +171,11 @@ struct symtable {
 };
 ```
 
-For now, we will treat arrays as pointers, and so the type for an
-array is "pointer to" something, e.g. "pointer to int" if the elements
-in the array are `int`s. We also need to add one more argument to
-`addglob()` in `sym.c`:
+暂时我们会把数组当作指针来处理，
+因此一个数组的类型就是“指向某种元素的指针”，
+例如元素是 `int` 时，
+数组类型就视为 “pointer to int”。
+同时我们还需要给 `sym.c` 里的 `addglob()` 多加一个参数：
 
 ```c
 int addglob(char *name, int type, int stype, int endlabel, int size) {
@@ -165,10 +183,10 @@ int addglob(char *name, int type, int stype, int endlabel, int size) {
 }
 ```
 
-## Parsing Array Declarations
+## 解析数组声明
 
-For now, I'm only going to allow declarations of arrays with a size.
-The BNF grammar for variable declarations is now:
+目前我只打算支持“带大小的数组声明”。
+此时变量声明的 BNF 语法变成：
 
 ```
  variable_declaration: type identifier ';'
@@ -176,8 +194,10 @@ The BNF grammar for variable declarations is now:
         ;
 ```
 
-So we need to see what token is next in `var_declaration()` in `decl.c`
-and process either a scalar variable declaration or an array declaration:
+因此，
+我们需要在 `decl.c` 的 `var_declaration()` 里
+看看下一个 token 是什么，
+再决定解析“标量变量声明”还是“数组声明”：
 
 ```c
 // Parse the declaration of a scalar variable or an array
@@ -212,13 +232,15 @@ void var_declaration(int type) {
 }
 ```
 
-I think that's pretty straight-forward code Later on, we'll add
-initialisation lists to the declaration of arrays.
+我觉得这段代码相当直接。
+后面我们会继续扩展，
+给数组声明加上初始化列表（initialisation list）。
 
-## Generating the Array Storage
+## 生成数组存储空间
 
-Now that we know the size of the array, we can modify `cgglobsym()` to
-allocate this space in the assembler:
+既然现在已经知道数组大小了，
+我们就可以修改 `cgglobsym()`，
+让它在汇编里分配对应空间：
 
 ```c
 void cgglobsym(int id) {
@@ -242,7 +264,8 @@ void cgglobsym(int id) {
 }
 ```
 
-With this in place, we can now declare arrays such as:
+有了这段逻辑之后，
+我们就能声明这样的数组了：
 
 ```c
   char a[10];
@@ -250,11 +273,11 @@ With this in place, we can now declare arrays such as:
   long c[100];
 ```
 
-## Parsing Array Indexes
+## 解析数组下标
 
-In this part I don't want to get too adventurous. I only want to
-get basic array indexes as rvalues and lvalues to work. The
-`test/input20.c` program has the functionality that I want to achieve:
+这一部分里我不想一下子做得太激进。
+我只想先让“基础数组下标”在右值和左值两种场景里跑起来。
+`test/input20.c` 这个程序就体现了我想实现的功能：
 
 ```c
 int a;
@@ -266,8 +289,9 @@ int main() {
 }
 ```
 
-Back in the BNF grammar for C, we can see that array indexes have
-*slightly* lower priority than parentheses:
+回到 C 的 BNF 语法，
+我们可以看到数组下标的优先级
+比括号*稍微*低一点：
 
 ```
 primary_expression
@@ -283,10 +307,10 @@ postfix_expression
           ...
 ```
 
-But for now, I'll parse array indexes also in the `primary()` function.
-The code to do the semantic analysis ended up being big enough to warrant
-a new function:
-
+不过眼下，
+我还是打算继续在 `primary()` 里解析数组下标。
+而为了完成其中的语义分析（semantic analysis），
+代码已经复杂到值得单独拆出一个函数：
 
 ```c
 static struct ASTnode *primary(void) {
@@ -307,7 +331,7 @@ static struct ASTnode *primary(void) {
     if (Token.token == T_LBRACKET) return (array_access());
 ```
 
-And here is the `array_access()` function:
+下面就是 `array_access()`：
 
 ```c
 // Parse the index into an array and
@@ -348,28 +372,32 @@ static struct ASTnode *array_access(void) {
 }
 ```
 
-For the array `int x[20];` and the array index `x[6]`, we need to
-scale the index (6) by the size of `int`s (4), and add this to the
-address of the array base. Then this element has to be dereferenced.
-We leave it marked as an lvalue, because we could be trying to do:
+对于数组 `int x[20];` 和访问 `x[6]` 这件事，
+我们需要先把下标 `6`
+按 `int` 的大小（4）做缩放，
+再把它加到数组基地址上。
+然后还必须对这个元素做一次解引用。
+这里我们仍然把它标记为 lvalue，
+因为我们完全可能是在处理下面这种写法：
 
 ```c
   x[6] = 100;
 ```
 
-If it does become an rvalue, then `binexpr()` will set the `rvalue`
-flag in the A_DEREF AST node.
+如果它最终需要变成 rvalue，
+那么 `binexpr()` 会去设置 `A_DEREF` AST 节点上的 `rvalue` 标志。
 
-### The Generated AST Trees
+### 生成出来的 AST 树
 
-Going back to our test program `tests/input20.c`, the code that will
-produce AST trees with array indexes are:
+回到测试程序 `tests/input20.c`，
+其中会生成数组下标 AST 的代码是：
 
 ```c
   b[3]= 12; a= b[3];
 ```
 
-Running `comp1 -T tests/input20.c`, we get:
+运行 `comp1 -T tests/input20.c`，
+我们会得到：
 
 ```
     A_INTLIT 12
@@ -390,11 +418,12 @@ A_ASSIGN
 A_ASSIGN
 ```
 
-### Other Minor Parse Changes
+### 其他一些小的解析改动
 
-There are a couple of minor changes to the parser in `expr.c` which took
-me a while to debug. I needed to be more stringent with the input to
-the operator precedence lookup function:
+`expr.c` 里还有两处较小的解析器修改，
+但我当时花了不少时间才把它们调对。
+首先，
+我必须更严格地约束传给“运算符优先级查询函数”的输入：
 
 ```c
 // Check that we have a binary operator and
@@ -407,13 +436,16 @@ static int op_precedence(int tokentype) {
 }
 ```
 
-Until I got the parsing right, I was sending a token not in the
-precedence table, and `op_precedence()` was reading past the end of the
-table. Oops! Don't you just love C?!
+在把解析逻辑调正确之前，
+我一度把一个“不在优先级表里”的 token 传了进去，
+结果 `op_precedence()` 直接越界读到了表后面的内容。
+哎，C 语言就是这么“可爱”，不是吗？
 
-The other change is that, now that we can use expressions as array
-indexes (e.g. `x[ a+2 ]`), we have to expect the ']' token can end
-an expression. So, at the end of `binexpr()`:
+另一处改动是：
+既然现在数组下标里也可以写表达式
+（例如 `x[ a+2 ]`），
+那我们就必须接受 `']'` 也可能成为一个表达式的结束标记。
+因此，在 `binexpr()` 的末尾：
 
 ```c
     // Update the details of the current token.
@@ -427,17 +459,18 @@ an expression. So, at the end of `binexpr()`:
   }
 ```
 
-## Changes to the Code Generator
+## 对代码生成器的修改
 
-There are none. We had all the necessary components in our compiler
-already: scaling integer values, obtaining the address of a variable etc.
-For our test code:
+没有。
+编译器里该有的组成部分其实之前已经都准备好了：
+缩放整数值、取变量地址等等都已经能做。
+对于我们的测试代码：
 
 ```c
   b[3]= 12; a= b[3];
 ```
 
-we generate the x86-64 assembly code:
+最终生成的 x86-64 汇编代码是：
 
 ```
         movq    $12, %r8
@@ -455,13 +488,18 @@ we generate the x86-64 assembly code:
         movl    %r9d, a(%rip)   # and store in a
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-The parsing changes to add basic array declarations and array
-expressions (in terms of dealing with the syntax) were quite easy to
-do. What I found difficult was getting the AST tree nodes correct to
-scale, add to the base address, and set as lvalue/rvalue. Once this
-was right, the existing code generator produces the right assembly output.
+为了支持基础数组声明和数组表达式，
+从“语法处理”这个角度看，
+解析器上的改动其实并不算难。
+真正让我觉得麻烦的，
+是如何把 AST 节点组织正确：
+既要缩放下标、加到基地址上，
+还要正确设置成 lvalue 或 rvalue。
+而一旦这部分搞对了，
+现有代码生成器就能自然产出正确的汇编。
 
-In the next part of our compiler writing journey, we'll add character
-and string literals to our language and find a way to print them out. [Next step](../20_Char_Str_Literals/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会给语言加入字符字面量和字符串字面量，
+并找到把它们打印出来的方法。 [下一步](../20_Char_Str_Literals/Readme.md)
