@@ -1,49 +1,64 @@
-# Part 52: Pointers, part 2
+# 第 52 部分：指针，第 2 部分
 
-In this part of our compiler writing journey, I started with a pointer
-issue that needed to fix, and I ended up restructuring about half of
-`expr.c` and changing the API to another quarter of the functions in the
-compiler. So this is a big step in terms of number of lines touched, but
-not a big step in terms of fixes or improvements.
+在编译器编写之旅的这一部分里，
+我原本只是想修一个和指针有关的问题，
+结果最后却重构了差不多一半的 `expr.c`，
+还顺手改了编译器里另外四分之一函数的 API。
+所以从“动到的代码行数”来说，
+这是一步很大的改动；
+但从“真正新增的功能和修复点”来看，
+它其实并不是一次特别大的飞跃。
 
-## The Problem
+## 问题是什么
 
-We'll start with the problem that caused all of this. When running the
-compiler's source code through itself, I realised that I couldn't parse
-a chain of pointers, e.g. something like the expression:
+先从引发这一切的问题说起。
+当我让编译器拿自己的源码来编译自己时，
+我发现它没法解析一串连续的指针访问，
+例如这样的表达式：
 
 ```c
   ptr->next->next->next
 ```
 
-The reason for this is that `primary()` is called and gets the value of
-the identifier at the beginning of the expression. If it sees a following
-postfix operator, it then calls `postfix()` to deal with it. `postfix()`
-deals with, for example, one `->` operator and returns. And that's it.
-There is no loop to follow a chain of `->` operators.
+原因在于：
+`primary()` 会先被调用，
+拿到表达式开头那个标识符的值。
+如果后面跟着某个后缀运算符，
+它再调用 `postfix()` 去处理。
+而 `postfix()` 目前只会处理一次 `->` 运算符，
+然后就返回。
+事情到此为止。
+也就是说，
+这里根本没有循环来继续吃掉后面那一串 `->`。
 
-Even worse, `primary()` looks for a single identifier. This means that
-it won't parse the following, either:
+更糟的是，
+`primary()` 自己只会查找一个单独的标识符。
+这意味着，
+下面这些表达式它也同样解析不了：
 
 ```c
   ptrarray[4]->next     OR
   unionvar.member->next
 ```
 
-because neither of these are single identifers before the `->` operator.
+因为在 `->` 之前，
+这两者都不是“单个标识符”。
 
-## How Did This Happen?
+## 这事为什么会发生？
 
-This happened because of the rapid prototyping nature of our development.
-I only add functionality one small step at a time, and I don't usually
-look too far ahead in terms of future needs. So, now and then, we have to
-undo what has been written to make it more general and flexible.
+这是快速原型开发模式的自然结果。
+我通常都是一次只加一个很小的功能点，
+也不会特别往前看太远，
+去预判未来会用到什么。
+所以时不时地，
+我们就不得不把之前写过的东西拆掉重来，
+让它变得更一般化、更灵活。
 
-## How to Fix It?
+## 那该怎么修？
 
-If we look at the
-[BNF Grammar for C](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html), we
-see this:
+如果我们去看
+[C 的 BNF 语法](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)，
+会看到这样：
 
 ```
 primary_expression
@@ -65,18 +80,30 @@ postfix_expression
         ;
 ```
 
-In other words, we have things backwards. `postfix` should call `primary()`
-to get an AST node that represents the identifier. Then, we can loop looking
-for any postfix tokens, parse them and add new AST parent nodes on to the
-identifier node that we received back from `primary()`.
+换句话说，
+我们现在的方向正好搞反了。
+应该是 `postfix()`
+先去调用 `primary()`，
+拿到一个能表示基础标识符的 AST 节点。
+然后它再进入循环，
+不断查看后面是否还跟着后缀运算符；
+如果有，
+就继续解析，
+并在先前那个节点之上再包一层新的 AST 父节点。
 
-It all sounds nice and simple except for one thing. The current
-`primary()` doesn't build an AST node; it only parses the identifier and
-leaves it in `Text`. It's the job of `postfix()` to build the AST node or
-AST tree for the identifier plus any postfix operations.
+这套思路听起来挺直观，
+但麻烦在于：
+当前的 `primary()`
+其实根本不构建 AST 节点。
+它只负责把标识符解析出来，
+并把名字留在全局 `Text` 变量里。
+真正负责为“标识符 + 后缀操作”
+构建 AST 的，
+一直都是 `postfix()`。
 
-At the same time, the AST node structure in `defs.h` only knows about the
-primitive type:
+与此同时，
+`defs.h` 里的 AST 节点结构
+目前也只保存了“基本类型（primitive type）”：
 
 ```c
 // Abstract Syntax Tree structure
@@ -88,31 +115,42 @@ struct ASTnode {
 };
 ```
 
-The reason for this is that we only recently added structs and unions. This,
-and the fact that `postfix()` did most of the parsing work meant that we
-haven't needed to store a pointer to the struct or union symbol for
-an identifier which is a struct or union.
+之所以会这样，
+是因为 struct 和 union
+这些能力其实也是最近才加进来的。
+再加上此前绝大部分解析工作
+都堆在 `postfix()` 里，
+所以我们一直都还没有真正需要
+把“某个标识符若是 struct/union，它对应哪一个复合类型符号”
+也存进 AST 节点里。
 
-So, to fix things, we need to:
+因此，
+要真正修好这件事，
+我们需要：
 
-  1. Add in a `ctype` pointer to `struct ASTnode` so that the full type
-     is stored in each AST node.
-  2. Find and fix all the functions that build AST nodes, and all the calls
-     to these function, so that the `ctype` of a node is stored.
-  3. Move `primary()` up near the top of `expr.c` and get it to build
-     an AST node.
-  4. Get `postfix()` to call `primary()` to get the unadorned AST node
-     for an identifier (A_IDENT).
-  5. Get `postfix()` to loop while there are postfix operators to process.
+  1. 在 `struct ASTnode` 中加入一个 `ctype` 指针，
+     这样每个 AST 节点都能保存完整类型信息。
+  2. 找出所有构造 AST 节点的函数，
+     以及所有调用这些函数的地方，
+     并修好它们，
+     确保 `ctype` 会被正确传入和保存。
+  3. 把 `primary()` 挪到 `expr.c` 更靠前的位置，
+     并让它开始真正构建 AST 节点。
+  4. 让 `postfix()` 调用 `primary()`，
+     拿到一个不带修饰的标识符 AST 节点
+     （也就是 `A_IDENT`）。
+  5. 让 `postfix()` 在存在后缀运算符时持续循环处理。
 
-That's a lot and, as the AST node calls are sprinkled everywhere, every
-single source file in the compiler will need to be touched. Sigh.
+这工作量很大，
+而且 AST 节点构造调用散落在整个编译器里，
+所以几乎每一个源文件都得碰一遍。
+真是烦人。
      
-## Changes to the AST Node Functions
+## 对 AST 节点函数的修改
 
-I'm not going to bore you with all the details, but we can start with
-the change to the AST node structure in `defs.h`, and the main function
-in `tree.c` that builds an AST node:
+我就不把所有细节一条条展开了，
+先从 `defs.h` 中 AST 节点结构的修改，
+以及 `tree.c` 中那个最核心的“构造 AST 节点”函数说起：
 
 ```c
 // Abstract Syntax Tree structure
@@ -135,34 +173,51 @@ struct ASTnode *mkastnode(int op, int type,
 }
 ```
 
-There are also changes to `mkastleaf()` and `mkastunary()`: they now receive
-a `ctype` and call `mkastnode()` with this argument.
+`mkastleaf()` 和 `mkastunary()`
+也做了同样方向的修改：
+它们现在也会接收一个 `ctype`，
+并在内部把它传给 `mkastnode()`。
 
-In the compiler there are about 40 calls to these three functions, so I'm not
-going to go through each and every one. For most of them, there is a primitive
-`type` and ` ctype` pointer available. Some calls set the AST node
-type to P_INT and thus the `ctype` is NULL. Some calls set the AST node type
-to P_NONE and, again, the `ctype` is NULL.
+整个编译器里，
+对这三个函数的调用大约有 40 处。
+我当然不会把每一处都拿出来讲。
+大多数情况下，
+我们手头本来就同时有 primitive `type`
+和对应的 `ctype` 指针。
+有些调用会把 AST 节点类型设成 `P_INT`，
+那么此时 `ctype` 就是 `NULL`。
+还有些调用会把类型设成 `P_NONE`，
+那 `ctype` 也一样还是 `NULL`。
 
+## 对 `modify_type()` 的修改
 
-## Changes to `modify_type()`
+`modify_type()`
+负责判断某棵 AST 的类型
+和另一种类型是否兼容，
+必要时还会把前者扩宽成后者。
+而它内部会调用 `mkastunary()`，
+所以现在同样也得把 `ctype`
+传进去。
 
-The `modify_type()` is used to determine if an AST node's type is compatible
-with another type and, if necessary, to widen the node to match the other
-type. It calls `mkastunary()` and thus we also need to provide it with a
-`ctype` argument. I've done this and, as a consequence, the six calls to
-`modify_type()` have had to be modified to pass in the `ctype` of the
-type which we are comparing the AST node against.
+我已经把这部分补好了。
+于是相应地，
+那 6 处调用 `modify_type()`
+的地方也都得修改，
+把它们比较目标类型对应的 `ctype`
+一起传下来。
 
-## Changes to `expr.c`
+## 对 `expr.c` 的修改
 
-Now we get to the meat of the changes, the restucturing of `primary()`
-and `postfix()`. I've already outlined what we have to do above. As with
-much of what we've done, there are a few wrinkles along the way to iron out.
+现在终于来到真正的重点：
+`primary()` 和 `postfix()`
+的重构。
+前面我已经概括过我们想做的方向了。
+和之前很多改动一样，
+这里中途还是有些小弯需要慢慢抹平。
 
-## Changes to `postfix()`
+## 对 `postfix()` 的修改
 
-`postfix()` actually looks much cleaner now:
+`postfix()` 现在看起来其实整洁多了：
 
 ```c
 // Parse a postfix expression and return
@@ -178,65 +233,90 @@ static struct ASTnode *postfix(void) {
   while (1) {
     switch (Token.token) {
     ...
-    default:
-      return (n);
-    }
-  }
 ```
 
-We now call `primary()` to get an identifier or a constant. Then we
-loop applying any postfix operators to the AST node we received from
-`primary()`. We call out to helper functions like `array_access()` and
-`member_access()` for `[..]`, `.` and `->` operators.
+它现在会先调用 `primary()`，
+拿到一个基础表达式对应的 AST。
+然后只要后面还跟着后缀运算符，
+就继续循环处理。
 
-We do post-increment and post-decrement here. Now that there is a loop,
-we have to check that we don't try to do these operations more than once.
-We also check that the AST we received from `primary()` is an lvalue and
-not an rvalue, as we need an address in memory to increment or decrement.
+我们同时还会检查：
+从 `primary()` 拿回来的 AST
+必须是左值而不是右值，
+因为如果要做自增或自减，
+我们必须拿到的是内存地址，
+而不只是一个纯右值结果。
 
-## A New Function, `paren_expression()`
+## 新函数：`paren_expression()`
 
-I realised that the new `primary()` function was getting a bit too big, so
-I split some of its code off into a new function, `paren_expression()`. This
-parses expressions that are enclosed in `(..)`: casts and ordinary
-parenthesised expressions. The code is nearly identical to the old code, so
-I won't go into it here. It returns an AST node with the tree that represents
-either a cast expression or a parenthesised expression.
+我后来发现，
+新的 `primary()`
+已经开始膨胀得有点过头了，
+所以我又把它的一部分逻辑拆成了一个新函数：
+`paren_expression()`。
+它负责解析被 `(..)` 包起来的表达式，
+包括 cast 和普通括号表达式。
 
-## Changes to `primary()`
+这段代码和旧逻辑基本一致，
+所以我就不在这里细讲了。
+它会返回一棵 AST，
+表示“一个 cast 表达式”
+或者“一个普通括号表达式”。
 
-This is where the biggest change has occurred. Firstly, here are the tokens
-it looks for:
+## 对 `primary()` 的修改
 
- + 'static', 'extern' which it complains about, because we can only be
-    parsing expressions in a local context.
- + 'sizeof()'
- + integer and string literals
- + identifiers: these could be known types (e.g. 'int'), names of enums,
-    names of typedefs, function names, array names and/or scalar variable
-    names. This section is the biggest part of `primary()` and, on reflection,
-    perhaps I should make this into its own function.
- + `(..)` which is where  `paren_expression()` gets called.
+这里才是变化最大的一块。
+先列一下它现在会处理哪些 token：
 
-Looking at the code, `primary()` now builds AST nodes for each of the above to
-return to `postfix()`. This used to be done in `postfix` but I now do it
-in `primary()`.
+ + `static`、`extern`
+   如果在这里看到它们就会直接报错，
+   因为这说明我们本来应该是在局部上下文里解析表达式。
+ + `sizeof()`
+ + 整数字面量和字符串字面量
+ + 标识符：
+   这部分最大，
+   因为它可能是已知类型名（如 `int`）、
+   enum 名称、
+   typedef 名称、
+   函数名、
+   数组名，
+   以及 / 或者标量变量名。
+   回头想想，
+   我也许应该把这一大块再拆成一个单独函数。
+ + `(..)`，
+   也就是这里会调用 `paren_expression()`
 
-## Changes to `member_access()`
+从代码上看，
+`primary()` 现在会为上面这些情况
+直接构建 AST 节点，
+然后再返回给 `postfix()`。
+这些事情以前其实都是 `postfix()`
+在做，
+但现在我把它们前移到了 `primary()`。
 
-With the previous `member_access()`, the global `Text` variable still
-held the identifier, and `member_access()` built the AST node to represent
-the struct/union identifier.
+## 对 `member_access()` 的修改
 
-In the current `member_access()`, we receive the AST node for the
-struct/union identifier, and this could be an array element or a member of
-another struct/union.
+在旧版 `member_access()` 中，
+全局 `Text` 变量里仍然保存着标识符名字，
+而 `member_access()`
+会自己去构造那个表示
+struct/union 标识符的 AST 节点。
 
-So the code is different in that we don't build the leaf AST node for the
-original identifier anymore. We still build AST nodes to add on the offset
-from the base and dereference the pointer to the member.
+但在现在的版本里，
+我们传给 `member_access()`
+的已经是一棵 AST 节点。
+而这个节点本身，
+既可能是一个数组元素，
+也可能是另一个 struct/union 的成员。
 
-One other difference is this code:
+因此这里的代码也相应变了：
+我们不再负责为“最初那个标识符”
+创建叶子 AST 节点。
+我们现在仍然会构建新的 AST 节点，
+用来在基址上叠加成员偏移，
+再对成员指针进行解引用。
+
+还有一处值得注意的不同是这段代码：
 
 ```c
   // Check that the left AST tree is a struct or union.
@@ -250,24 +330,39 @@ One other difference is this code:
   }
 ```
 
-Consider the expression `foo.bar`. `foo` is the name of a struct, for example,
-and `bar` is a member of that struct`.
+考虑表达式 `foo.bar`。
+这里 `foo`
+例如可能是一个 struct 变量，
+而 `bar` 则是该 struct 的某个成员。
 
-In `primary()` we will have created an A_IDENT AST node for `foo`, because
-we can't tell if this is a scalar variable (e.g. `int foo`) or a structure
-(e.g. `struct fred foo`). Now that we know it's a struct or a union, we
-need the base address of the struct and not the value at the base address.
-So, the code converts the A_IDENT AST node operation into an A_ADDR operation
-on the identifier.
+在 `primary()` 里，
+我们一开始只能为 `foo`
+构建一个 `A_IDENT` AST 节点，
+因为当时还没法立刻判断它到底是普通标量变量
+（例如 `int foo`）
+还是结构体变量
+（例如 `struct fred foo`）。
 
-## Testing the Code
+但一旦来到这里，
+我们已经知道它确实是一个 struct 或 union，
+于是我们真正需要的就不再是“该地址处的值”，
+而是“这个 struct 的基地址”。
+因此这里会把原来的 `A_IDENT`
+就地改写成 `A_ADDR`。
 
-I think I spent about two hours running through our hundred plus regression
-tests, finding things I'd missed and fixing them up. It certainly felt good
-to get through all the tests again.
+## 测试代码
 
-`tests/input128.c` now checks that we can follow a chain of pointers, which
-was the whole point of this exercise:
+我感觉自己大概花了两个小时，
+一路跑我们那一百多个回归测试，
+不断发现遗漏，
+再不断把它们补上。
+不过最终能再次把整套测试全跑通，
+还是挺舒服的。
+
+`tests/input128.c`
+现在会检查：
+我们终于能跟随一串连续的指针访问了，
+这也正是我这次折腾的起点：
 
 ```c
 struct foo {
@@ -291,33 +386,49 @@ int main() {
 }
 ```
 
-And `tests/input129.c` checks that we can't post-increment twice in a row.
+而 `tests/input129.c`
+则检查不能连续做两次后置自增。
 
-## One Other Change: `Linestart`
+## 另外一个改动：`Linestart`
 
-There is one more change that I made to the compiler as part of our
-effort to get it to self-compile.
+为了让编译器进一步走向自举，
+我在这次还顺手改了另外一件事。
 
-The scanner was looking for a '#' token. When it saw this token, it assumed
-that we had hit a C pre-processor line and it parsed this line. Unfortunately,
-I hadn't tied the scanner down to looking in the first column of each line.
-So, when our compiler hit this source code line:
+原本扫描器会在看到 `'#'` token 时，
+直接假设：
+这是某一行 C 预处理器输出，
+于是就按预处理器行去解析。
+但问题是，
+我之前根本没有把它限定在“每行第一列”。
+所以当编译器碰到下面这行源码时：
 
 ```c
   while (c == '#') {
 ```
 
-it got upset that the ')' '{' were not a C pre-processor line.
+它居然会因为后面的 `')' '{'`
+不像一条真正的 C 预处理器行
+而当场犯病。
 
-We now have a `Linestart` variable which flags if the scanner is at the
-first column of a new line or not. The main function which is modified
-is `next()` in `scan.c`. I think the changes are a bit ugly but they work;
-I should come back sometime and see if I can clean this up a bit. Anyway,
-we only expect C pre-processor lines when we see a '#' in column 1.
+现在我们引入了一个 `Linestart` 变量，
+用来标记扫描器当前是否位于某一新行的第一列。
+改动最多的主函数是 `scan.c`
+里的 `next()`。
+说实话，
+我觉得这次改法看起来有点丑，
+但它确实能工作。
+我以后应该回来再看看，
+能不能把这块整理得更干净一点。
+
+总之，
+现在只有当 `'#'`
+出现在第 1 列时，
+我们才会把它当成 C 预处理器行。
 
 
-## Conclusion and What's Next
+## 总结与下一步
 
-In the next part of our compiler writing journey, I'll go back to feeding
-the compiler source code to itself, see what errors pop and up choose one
-or more to fix. [Next step](../53_Mop_up_pt2/Readme.md)
+在编译器编写之旅的下一部分中，
+我会继续把编译器源码喂给它自己，
+看看还会冒出什么错误，
+然后挑其中一个或几个继续修。 [下一步](../53_Mop_up_pt2/Readme.md)

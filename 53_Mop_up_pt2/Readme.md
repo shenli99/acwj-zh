@@ -1,26 +1,34 @@
-# Part 53: Mopping Up, part 2
+# 第 53 部分：收尾清扫，第 2 部分
 
-In this part of our compiler writing journey, I fix a few annoying things
-that we use in the compiler's own source code.
+在编译器编写之旅的这一部分里，
+我修了几件挺烦人的小事，
+而它们恰好又都已经出现在编译器自己的源码里了。
 
-## Consecutive String Literals
+## 连续字符串字面量
 
-C allows the declaration of string literals by splitting them across
-multiple lines or as multiple strings, e.g.
+C 允许把字符串字面量拆成多行，
+或者拆成多个紧挨着的字符串，
+例如：
 
 ```c
   char *c= "hello " "there, "
            "how " "are " "you?";
 ```
 
-Now, we could fix this problem up in the lexical scanner. However, I spent
-a lot of time trying to do this. The problem is that the code is now
-complicated with dealing with the C pre-processor, and I couldn't find a clean
-way of allowing consecutive string literals.
+当然，
+我们完全可以在词法扫描器里解决这个问题。
+但我确实花了不少时间尝试这么做，
+结果并不理想。
+问题在于：
+扫描器现在已经因为 C 预处理器支持而变得比较复杂，
+我一直没找到一种足够干净的方式，
+来让它正确处理连续字符串字面量。
 
-My solution is to do it in the parser, with a bit of help from the code
-generator. In `primary()` in `expr.c`, the code that deals with string
-literals now looks like this:
+所以我的解决方案是：
+把这件事放到解析器里做，
+同时让代码生成器配合一点。
+现在在 `expr.c` 的 `primary()` 中，
+处理字符串字面量的代码变成了这样：
 
 ```c
   case T_STRLIT:
@@ -42,13 +50,17 @@ literals now looks like this:
     break;
 ```
 
-`genglobstr()` now takes a second argument which tells it if this
-is the first part of the string or a successive part of the string.
-Also, `genglobstrend()` now has the job of NUL terminating the string literal.
+`genglobstr()` 现在多接收了第二个参数，
+用来告诉它：
+这是字符串的第一段，
+还是后续拼接进来的连续部分。
+而 `genglobstrend()`
+现在则专门负责在最终字符串末尾补上 NUL 终止符。
 
-## Empty Statements
+## 空语句
 
-C allows both empty statements and empty compound statements, e.g.
+C 同时允许“空语句”和“空复合语句”，
+例如：
 
 ```c
   while ((c=getc()) != 'x') ;           // ';' is an empty statement
@@ -56,8 +68,9 @@ C allows both empty statements and empty compound statements, e.g.
   int fred() { }                        // Function with empty body
 ```
 
-and I use both of these in the compiler, so we need to support both of them.
-In `stmt.c`, the code now does this:
+而这两种写法我都已经在编译器自己的源码里用到了，
+所以我们也得支持它们。
+现在 `stmt.c` 里的代码会这样做：
 
 ```c
 static struct ASTnode *single_statement(void) {
@@ -89,24 +102,38 @@ struct ASTnode *compound_statement(int inswitch) {
 }
 ```
 
-and that fixes both shortcomings.
+这样一来，
+这两种缺失情况就都修好了。
 
-## Redeclared Symbols
+## 重复声明的符号
 
-C allows a global variable to later be declared extern, and an extern
-variable to be declared later as a global variable, and vice versa.
-However, the types of both
-declarations have to match. We also want to ensure that only one
-version of the symbol ends up in the symbol table: we don't want both a
-C_GLOBAL and a C_EXTERN entry!
+C 允许一个全局变量先声明为 `extern`，
+后面再真正定义成普通全局变量；
+反过来也允许先定义全局变量，
+后面再写一个 `extern` 声明。
+当然，
+前提是两次声明的类型必须一致。
 
-In `stmt.c` I've added a new function called `is_new_symbol()`. We call this
-after we have parsed the name of a variable and after we have tried
-to find it in the symbol table. Thus, `sym` may be NULL (no existing
-variable) or not NULL (is an existing variable).
+同时我们还得保证：
+这个符号最后在符号表里只保留一个版本。
+也就是说，
+我们不希望同时看到一个 `C_GLOBAL`
+和一个 `C_EXTERN` 条目并存。
 
-If the symbol exists, it's actually quite complicated to ensure that
-it's a safe redeclaration.
+所以我在 `stmt.c` 里新增了一个函数：
+`is_new_symbol()`。
+调用时机是在：
+我们已经解析出了变量名，
+并且也已经尝试去符号表里查找过它之后。
+因此传进来的 `sym`
+可能是 `NULL`
+（说明之前不存在），
+也可能不是 `NULL`
+（说明这是个已有符号）。
+
+而一旦符号已经存在，
+判断它是不是“安全的重新声明”
+其实还挺麻烦。
 
 ```c
 // Given a pointer to a symbol that may already exist
@@ -144,13 +171,18 @@ int is_new_symbol(struct symtable *sym, int class,
 }
 ```
 
-The code is straight-forward but not elegant. Also note that any redeclared
-extern symbol is turned into a global symbol. This means we don't have to
-remove the symbol from the symbol table and add in a new, global, symbol.
+这段代码本身不算难懂，
+但也谈不上优雅。
+还要注意一点：
+任何被重新声明的 `extern` 符号，
+最终都会被转换成 `global` 符号。
+这样我们就不必把旧符号从表里删掉，
+再新建一个全局符号重新插进去。
 
-## Operand Types to Logical Operations
+## 逻辑运算中的操作数类型
 
-The next bug I hit was something like this:
+接下来我撞上的另一个 bug
+大概像这样：
 
 ```c
   int *x;
@@ -159,15 +191,20 @@ The next bug I hit was something like this:
   if (x && y > 12) ...
 ```
 
-The compiler evaluates the `&&` operation in `binexpr()`. To do this,
-it ensures that the types of each side of the binary operator are
-compatible. Well, if the operator above was a `+` then, definitely,
-the types are incompatible. But with a logical comparison, we can
-*AND* these together.
+编译器在 `binexpr()`
+里处理 `&&` 运算。
+为此，
+它会去检查二元运算符两边的类型是否兼容。
+如果这里的运算符是 `'+'`，
+那这两个类型显然不兼容；
+但对于逻辑比较来说，
+我们完全可以把它们
+*AND* 在一起。
 
-I've fixed this by adding some more code to the top of `modify_type()`
-in `types.c`. If we are doing an `&&` or an `||` operation, then
-we need either integer or pointer types on each side of the operation.
+所以我在 `types.c`
+里的 `modify_type()` 顶部又补了一些逻辑。
+如果当前处理的是 `&&` 或 `||`，
+那两边只要是整数类型或者指针类型就可以。
 
 ```c
 struct ASTnode *modify_type(struct ASTnode *tree, int rtype,
@@ -189,17 +226,25 @@ struct ASTnode *modify_type(struct ASTnode *tree, int rtype,
 }
 ```
 
-I've also realised that I've implemented `&&` and `||` incorrectly, so
-I'll have to fix that. Now now, but soon.
+不过我同时也意识到，
+自己对 `&&` 和 `||`
+的实现其实还是不完全对。
+这个问题现在先记着，
+很快就得回来修。
 
-## Return with No Value
+## 没有返回值的 `return`
 
-One other C feature that is missing is the ability to return from a
-void function, i.e. just leave without returning any value. However,
-the current parser expects to see parentheses and an expression after
-the `return` keyword.
+C 里还有一个此前缺掉的小特性：
+在 `void` 函数里，
+允许直接 `return;`，
+也就是不返回任何值就离开。
 
-So, in `return_statement()` in `stmt.c`, we now have:
+但我们当前的解析器，
+在看到 `return` 关键字之后，
+总是期待后面还跟着括号和一个表达式。
+
+所以现在在 `stmt.c` 的 `return_statement()` 里，
+代码变成了这样：
 
 ```c
 // Parse a return statement and return its AST
@@ -228,13 +273,18 @@ static struct ASTnode *return_statement(void) {
 }
 ```
 
-If the `return` token isn't followed by a left parenthesis, we leave the
-expression `tree` set to NULL. We also check that this is a void returning
-function, and print out a fatal error if not.
+如果 `return` 后面没有左括号，
+那我们就保持表达式那棵 `tree`
+为 `NULL`。
+同时还会检查：
+当前函数必须确实是一个 `void` 返回函数，
+否则就报 fatal 错误。
 
-Now that we have parsed the `return` function, we may create an A_RETURN
-AST node with a NULL child. So now we have to deal with this in the code
-generator. The top of `cgreturn()` in `cg.c` now has:
+而既然现在可能解析出
+“子节点为 `NULL` 的 `A_RETURN` AST 节点”，
+那代码生成器也得跟着适配。
+所以 `cg.c` 里的 `cgreturn()`
+开头现在会是这样：
 
 ```c
 // Generate code to return a value from a function
@@ -249,22 +299,29 @@ void cgreturn(int reg, struct symtable *sym) {
 }
 ```
 
-If there was no child AST tree, then there is no register with the
-expression's value. Thus, we only output the jump to the function's
-end label.
+如果对应的 AST 子树不存在，
+那自然也就不会有寄存器保存表达式结果。
+因此这种情况下，
+我们只需要无条件跳到函数结束标签即可。
 
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We've fixed five minor issues in the compiler: things that we need to work to get
-the compiler to compile itself.
+这一部分里，
+我们修掉了编译器中的五个小问题：
+它们都是为了让编译器能继续往“编译自己”这件事上推进所必须补齐的。
 
-I did identify a problem with `&&` and `||`. However, before we get to
-that I need to solve an important, pressing, problem: we have a limited
-set of CPU registers and, for large source files, we are running out of
-them.
+我确实还发现了 `&&` 和 `||`
+这里存在一个实现问题。
+但在回头修它之前，
+我得先解决另一个更紧急的问题：
+我们的 CPU 寄存器数量是有限的，
+而在编译较大的源文件时，
+它们已经开始不够用了。
 
-In the next part of our compiler writing journey, I will have to work
-on implementing register spills. I've been delaying this, but now most of
-the fatal errors from the compiler (when compiling itself) are register
-issues. So now it's time to sort this out. [Next step](../54_Reg_Spills/Readme.md)
+在编译器编写之旅的下一部分中，
+我必须开始实现“寄存器溢出到栈（register spills）”。
+这件事我已经拖了很久，
+但现在编译器在尝试编译自己时，
+大部分 fatal 错误都已经和寄存器相关了。
+所以现在是时候正面处理它了。 [下一步](../54_Reg_Spills/Readme.md)
