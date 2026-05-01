@@ -1,45 +1,60 @@
-# Part 41: Local Variable Initialisation
+# 第 41 部分：局部变量初始化
 
-Well, after the significant list of changes in the last part, doing local
-variable initialisation was easy.
+经历了上一部分那一大串改动之后，
+这一部分里要做“局部变量初始化”
+反而变得很简单。
 
-We want to be able to do this sort of thing inside functions:
+我们希望在函数内部能够写出这样的代码：
 
 ```c
   int x= 2, y= x+3, z= 5 * x - y;
   char *foo= "Hello world";
 ```
 
-As we are inside a function, we can build an AST tree for the expression,
-build an A_IDENT node for the variable and join them together with an A_ASSIGN parent
-node. And, because there can be several declarations with assignments, we may need
-to build an A_GLUE tree which holds all of the assignment trees.
+既然现在已经处在函数内部，
+那我们就可以为右侧表达式构建 AST，
+为变量本身构建一个 `A_IDENT` 节点，
+再用一个 `A_ASSIGN` 父节点把两边接起来。
+同时，
+由于一条声明里可能包含多个带赋值的变量，
+所以我们还可能需要一棵 `A_GLUE` 树，
+把所有这些赋值子树串起来。
 
-The only wrinkle is that the code which parses local declarations is quite a
-call distance away from the code that deals with statement parsing. In fact:
+唯一的小弯在于：
+负责解析局部声明的代码，
+和负责解析普通语句的代码，
+在调用层级上其实隔得有点远。
+准确地说：
 
- + `single_statement()` in `stmt.c` sees a type identifier and calls
- + `declaration_list()` in `decl.c` to parse several declarations, which calls
- + `symbol_declaration()` to parse one declaration, which calls
- + `scalar_declaration()` to parse a scalar variable declaration and assignment
+ + `stmt.c` 里的 `single_statement()` 先看到一个类型标识符，然后调用
+ + `decl.c` 里的 `declaration_list()` 去解析多个声明，而它又调用
+ + `symbol_declaration()` 去解析单个声明，而它再调用
+ + `scalar_declaration()` 去解析标量变量声明与赋值
 
-The main problem is that all of these functions already return a value, so we
-can't build an AST tree in `scalar_declaration()` and return it back to
-`single_statement()`.
+主要问题在于，
+这些函数本身各自已经都有自己的返回值了，
+所以我们没法直接在 `scalar_declaration()`
+里构建 AST，
+再一路把它通过返回值传回 `single_statement()`。
 
-Also, `declaration_list()` parses multiple declarations, so it will have the job of
-building the A_GLUE tree to hold them all together.
+另外，
+`declaration_list()` 本身还负责一次解析多个声明，
+所以它还必须承担起“构建那棵把多个赋值串起来的 `A_GLUE` 树”的工作。
 
-The solution is to pass down a "pointer pointer" from `single_statement()` to
-`declaration_list()`, so that we can pass back the pointer to the A_GLUE tree.
-Similarly, we will pass a "pointer pointer" from `declaration_list()` down to
-`scalar_declaration()`, which will pass back the pointer to any assignment tree
-that it has built.
+解决办法是：
+从 `single_statement()` 往下传一个“双重指针（pointer pointer）”
+给 `declaration_list()`，
+这样就能把最终那棵 `A_GLUE` 树的指针回传回来。
+同样地，
+我们还会从 `declaration_list()` 再往下传一个“双重指针”
+给 `scalar_declaration()`，
+让它把自己构建出来的赋值树指针回传上来。
 
-## Changes to `scalar_declaration()`
+## 对 `scalar_declaration()` 的修改
 
-If we are in local context and we hit an '=' in a scalar variable's declaration,
-here is what we do:
+如果当前处在局部作用域，
+并且在标量变量声明里遇到了 `'='`，
+那现在的做法是这样：
 
 ```c
   struct ASTnode *varnode, *exprnode;
@@ -68,9 +83,13 @@ here is what we do:
   }
 ```
 
-That's it. We simulate the AST tree building that would normally occur in `expr.c` for
-an assignment expression. Once done, we pass back the assignment tree. This
-bubbles back up to `declaration_list()`. It now does:
+就这么多。
+这里我们只是模拟了
+`expr.c` 中通常为赋值表达式所做的 AST 构建过程。
+完成之后，
+把这棵赋值树通过指针传回去。
+然后它会一路回冒到 `declaration_list()`。
+而 `declaration_list()` 现在会这样做：
 
 ```c
   struct ASTnode **gluetree;            // is the ptr ptr argument that we get passed
@@ -93,10 +112,14 @@ bubbles back up to `declaration_list()`. It now does:
   }
 ```
 
-So `gluetree` is set to the AST tree with a bunch of A_GLUE nodes, each of which
-has an A_ASSIGN child with an A_IDENT child and an expression child.
+所以 `gluetree`
+最终会指向一棵由多个 `A_GLUE` 节点串起来的 AST，
+其中每一项下面都挂着一个 `A_ASSIGN`，
+而每个 `A_ASSIGN`
+又会带着一个 `A_IDENT` 子节点和一个表达式子节点。
 
-And, way up in `single_statement()` in `stmt.c`:
+而在更上层的 `stmt.c` 里，
+`single_statement()` 现在会这么写：
 
 ```c
     ...
@@ -121,10 +144,14 @@ And, way up in `single_statement()` in `stmt.c`:
     ...
 ```
 
-## Testing the New Code
+## 测试新代码
 
-The above changes were so short and simple that they compiled and worked first time.
-This is not a regular occurrence! Our test program, `tests/input100.c` is this:
+上面这些改动既短又直白，
+结果它们第一次编译就工作了。
+这种事可不常见！
+
+我们的测试程序 `tests/input100.c`
+长这样：
 
 ```c
 #include <stdio.h>
@@ -137,18 +164,24 @@ int main() {
 }
 ```
 
-and produces the following correct output: `Hello world 17 20`.
+它会生成如下正确输出：
+`Hello world 17 20`。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-It's nice to have a simple part on this journey now and then. I'm now starting to
-take wagers with myself as to:
+这段旅程里，
+偶尔能碰上一个实现起来相对简单的章节，
+感觉还真不错。
+我现在已经开始和自己打赌：
 
- + how many parts to the journey, in total, there will be, and
- + will I get it all done by the end of the year
+ + 整个系列最后总共会写多少部分
+ + 我能不能在年底前把它全部写完
 
-Right now I'm guessing about 60 parts and an 75% chance of completing by year's end.
-But we still have a bunch of small, but possibly difficult, features to add to the
-compiler.
+按我现在的猜测，
+大概会有 60 个部分左右，
+而在年底前完成的概率大概是 75%。
+不过我们前面还剩下一堆细小、
+但也许并不轻松的功能要补进编译器里。
 
-In the next part of our compiler writing journey, I will add cast parsing to the compiler. [Next step](../42_Casting/Readme.md)
+在编译器编写之旅的下一部分中，
+我会把 cast 的解析加进编译器。 [下一步](../42_Casting/Readme.md)

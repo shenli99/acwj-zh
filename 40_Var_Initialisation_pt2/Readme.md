@@ -1,19 +1,24 @@
-# Part 40: Global Variable Initialisation
+# 第 40 部分：全局变量初始化
 
-In the previous part of our compiler writing journey, I started the
-groundwork to add variable declarations to our language. I've been
-able to implement this for global scalar and array variables in this
-part of our compiler writing journey.
+在上一部分的编译器编写之旅里，
+我已经为语言加入“变量声明时顺带初始化”
+这件事打下了基础。
+而在这一部分里，
+我终于把它实现到了
+全局标量变量和全局数组变量上。
 
-At the same time, I realised that I hadn't designed the symbol table
-structure to properly deal with the size of a variable and the number
-of elements in an array variable. So half of this part is going to
-be a rewrite of some of the code that deals with the symbol table.
+与此同时，
+我也意识到，
+自己一开始设计的符号表结构，
+并不能很好地表示“变量本身的大小”
+以及“数组变量的元素个数”。
+所以这一部分大约有一半内容，
+其实是在重写一批与符号表相关的代码。
 
-## A Quick Recap for Global Variable Assignments
+## 先快速回顾一下全局变量赋值
 
-As a quick recap, below are a set of example global variable assignments
-that I want to support:
+先快速回顾一下，
+下面这些是我希望支持的全局变量赋值示例：
 
 ```c
 int x= 2;
@@ -25,13 +30,18 @@ char c[10]= { 'q', 'w', 'e', 'r', 't', 'y' };   // Zero padded
 char *d[]= { "apple", "banana", "peach", "pear" };
 ```
 
-I'm not going to deal with initialisation of global structs or unions.
-Also, for now, I'm not going to deal with putting NULL into `char *`
-variables. I'll come back to that later, if we need it.
+我暂时不打算处理
+全局 struct 或 union 的初始化。
+另外，
+暂时也还不打算支持把 `NULL`
+放进 `char *` 变量里。
+如果后面确实需要，
+我再回头补。
 
-## Where We Go To
+## 我们要往哪里走
 
-In the last part of the journey, I'd written this in `decl.c`:
+在上一部分里，
+我曾经在 `decl.c` 中写下过这样一段代码：
 
 ```c
 static struct symtable *symbol_declaration(...) {
@@ -55,14 +65,21 @@ static struct symtable *symbol_declaration(...) {
 }
 ```
 
-i.e. I knew where to put the code but I didn't know what code to write. First up, we need to parse some literal values...
+也就是说，
+我当时已经知道代码应该塞在哪个位置，
+但还不知道到底该写些什么。
+第一步，
+我们先得学会解析一些字面量值。
 
-## Scalar Variable Initialisation
+## 标量变量初始化
 
-We are going to need to parse integer and string literals, as these are the
-only things which we can assign to global variables. We need to ensure
-that the type of each literal is compatible with the variable type that we
-are assigning. To this end, there's a new function in `decl.c`:
+我们需要能够解析整数字面量和字符串字面量，
+因为对全局变量来说，
+目前可赋值的也就这两种东西。
+同时还必须确保：
+字面量的类型和要赋值的变量类型彼此兼容。
+为此，
+`decl.c` 中新增了一个函数：
 
 ```c
 // Given a type, check that the latest token is a literal
@@ -89,23 +106,31 @@ int parse_literal(int type) {
 }
 ```
 
-The first IF statement ensures that we can do:
+第一条 `if` 语句确保我们可以写出：
 
 ```c
 char *str= "Hello world";
 ```
 
-and it returns the label number of the address where the string is stored.
+而它返回的，
+则是这个字符串在内存中存放位置所对应的标签号。
 
-For integer literals, we check the range when we are assigning to a `char`
-variable. And for any other token type, we have a fatal error.
+至于整数字面量，
+当它要赋给 `char` 变量时，
+我们会额外检查数值范围。
+如果遇到其它不合法 token，
+就直接报 fatal 错误。
 
-## Changes to the Symbol Table Structure
+## 对符号表结构的修改
 
-The above function always returns an integer, regardless of what type of
-literal it parses. Now we need a location in each variable's symbol entry
-to store this. So, I've added (and/or modified) these fields in the
-symbol entry structure in `defs.h`:
+上面的函数无论解析的是哪种字面量，
+最终都统一返回一个整数。
+所以接下来，
+我们需要在每个变量对应的符号表项里
+预留一个地方来保存这些值。
+因此我在 `defs.h` 的符号结构里新增了
+（以及 / 或者调整了）
+这些字段：
 
 ```c
 // Symbol table structure
@@ -119,13 +144,15 @@ struct symtable {
 };
 ```
 
-For a scalar with one initial value, or for an array with several initial
-values, we store a count of elements in `nelems` and attach a list of
-integer values to `initlist`. Let's look at assignment to a scalar variable.
+对于只有一个初始值的标量，
+或者拥有多个初始值的数组，
+我们都把元素个数放进 `nelems`，
+并把一串整型值挂到 `initlist` 上。
+下面先来看标量变量赋值。
 
-## Assignment to Scalar Variables
+## 标量变量赋值
 
-The `scalar_declaration()` function is modified as follows:
+`scalar_declaration()` 现在被改成了这样：
 
 ```c
 static struct symtable *scalar_declaration(...) {
@@ -155,30 +182,46 @@ static struct symtable *scalar_declaration(...) {
 }
 ```
 
-We ensure that the assignment can only occur in global or local context,
-and we skip over the '=' token. We set up an `initlist` of exactly one
-and call `parse_literal()` with the type of this variable to get the
-literal value (or the label number of a string). Then we skip the
-literal value to get to the following token (either a ',' or a ';').
+这里先确保：
+只有在全局作用域或局部作用域中，
+变量才允许被初始化。
+随后跳过 `'='` token。
 
-Previously, the `sym` symbol table entry was created with `addglob()`
-and the number of elements was set to one. I'll cover this change soon.
+如果当前是全局变量，
+那就为它创建一个长度正好为 1 的 `initlist`，
+再调用 `parse_literal()`
+按变量类型把字面量值
+（或者字符串标签号）
+读出来存进去。
+然后继续扫描下一个 token，
+此时它应该是 `','` 或 `';'`。
 
-We now move the call to `genglobsym()` (which previously was in `addglob()`
-to here, and we wait until the initial value is stored in the `sym` entry.
-This ensures that the literal we just parsed will be put into the storage
-for the variable in memory.
+之前，
+`sym` 这个符号表项
+是在调用 `addglob()` 时创建的，
+并且元素个数直接被设成了 1。
+这个变化我等会儿再讲。
 
-### Scalar Initialisation Examples
+另外，
+之前放在 `addglob()` 里的 `genglobsym()` 调用，
+现在被我移到了这里。
+也就是说，
+我们会等到初始值真正写进 `sym` 表项之后，
+才去调用 `genglobsym()`。
+这样就能确保：
+刚才解析出来的字面量值
+会被正确写入变量对应的那块内存空间里。
 
-As a quick example:
+### 标量初始化示例
+
+举个简单例子：
 
 ```c
 int x= 5;
 char *y= "Hello";
 ```
 
-generates:
+会生成：
 
 ```
         .globl  x
@@ -198,15 +241,19 @@ y:
         .quad   L1
 ```
 
-## Changes to the Symbol Table Code
+## 对符号表代码的修改
 
-Before we get to the parsing of array intialisation, we need to detour
-over to the changes to the symbol table code. As I highlighted before,
-my original code didn't properly handle the storage of the size of a
-variable nor the number of elements in an array. Let's look at the
-changes I've made to do this.
+在进入数组初始化之前，
+我们得先绕一下路，
+看看符号表代码为了配合这件事都做了什么调整。
+正如前面提到的，
+我最初那套代码
+并不能正确保存“变量大小”
+以及“数组元素个数”。
+下面来看看我是怎么修的。
 
-Firstly, we have a bug fix. In `types.c`:
+首先有一个 bug 修复。
+在 `types.c` 中：
 
 ```c
 // Return true if a type is an int type
@@ -216,27 +263,40 @@ int inttype(int type) {
 }
 ```
 
-Previously, there was no test against P_CHAR, so a `void` type was
-treated as an integer type. Oops!
+之前这里没有去检查 `P_CHAR`，
+结果导致 `void` 类型
+竟然也会被当成整数类型。
+真离谱。
 
-In `sym.c` we now deal with the fact that each variable now has a:
+而在 `sym.c` 中，
+现在我们已经明确要处理：
+每个变量都有下面这两个字段：
 
 ```c
   int size;                     // Total size in bytes of this symbol
   int nelems;                   // Functions: # params. Arrays: # elements
 ```
 
-Later, we will use the `size` field for the `sizeof()` operator.
-We now need to set up both fields when we add a symbol to the global
-or local symbol table.
+后面，
+`size` 字段还会被 `sizeof()` 运算符拿来用。
+所以现在，
+无论是把符号加入全局符号表还是局部符号表，
+都必须同时设置好这两个字段。
 
-The `newsym()` function and all of the `addXX()` functions in `sym.c`
-now take an `nelems` argument instead of a `size` argument. For scalar
-variables, this is set to one. For arrays, this is set to the number of
-elements in the list. For functions, this is set to the number of function
-parameters. And for all other symbol tables, the value is unused.
+`sym.c` 里的 `newsym()` 函数
+以及所有 `addXX()` 系列函数，
+现在接收的已经不再是 `size` 参数，
+而是 `nelems` 参数。
+对标量变量来说，
+它被设为 1；
+对数组来说，
+它是数组里的元素数量；
+对函数来说，
+它是函数参数个数；
+而对其它类型的符号表项，
+这个值则暂时没什么意义。
 
-We now calculate the `size` value in `newsym()`:
+`size` 的计算现在统一放进 `newsym()` 里：
 
 ```c
   // For pointers and integer types, set the size
@@ -246,13 +306,18 @@ We now calculate the `size` value in `newsym()`:
     node->size = nelems * typesize(type, ctype);
 ```
 
-`typesize()` consults the `ctype` pointer to get the size of a struct or
-union, or calls `genprimsize()` (which calls `cgprimsize()`) to get the
-size of a pointer or an integer type.
+`typesize()` 会通过 `ctype` 指针
+去拿 struct 或 union 的大小；
+如果是指针或整数类型，
+则会调用 `genprimsize()`
+（后者再去调用 `cgprimsize()`）
+得到对应大小。
 
-Note the comment about structs and unions. We can't call `addstruct()`
-(which calls `newsym()`) with the details of a struct's size,
-because:
+注意上面注释里提到的 struct 和 union。
+我们没法在调用 `addstruct()`
+（它内部会再调用 `newsym()`）时，
+就把 struct 的大小一并传进去，
+因为：
 
 ```c
 struct foo {            // We call addglob() here
@@ -262,7 +327,9 @@ struct foo {            // We call addglob() here
 };
 ```
 
-So the code in `composite_declaration()` in `decl.c` now does this:
+当我们刚开始处理这个声明时，
+实际上还根本不知道整个结构体有多大。
+所以 `decl.c` 里的 `composite_declaration()` 现在会这么做：
 
 ```c
 static struct symtable *composite_declaration(...) {
@@ -288,14 +355,17 @@ static struct symtable *composite_declaration(...) {
 }
 ```
 
-So, in summary, the `size` field in a symbol table entry now holds
-the size of all of the elements in the variable, and `nelems` is
-the count of elements in the variable: one for arrays, some non-zero
-positive number for arrays.
+所以总结一下，
+现在符号表项里的 `size` 字段，
+保存的是“这个变量所有元素合起来占用的总字节数”；
+而 `nelems` 保存的是“元素个数”：
+对标量来说是 1，
+对数组来说则是某个非零正整数。
 
-## Array Variable Initialisation
+## 数组变量初始化
 
-We can finally get to array initialisation. I want to allow three forms:
+终于轮到数组初始化了。
+我希望允许下面三种形式：
 
 ```c
 int a[10];                                      // Ten zeroed elements
@@ -303,11 +373,16 @@ char b[]= { 'q', 'w', 'e', 'r', 't', 'y' };     // Six elements
 char c[10]= { 'q', 'w', 'e', 'r', 't', 'y' };   // Ten elements, zero padded
 ```
 
-but prevent an array declared with size *N* and more than *N* initialisation
-values. Let's look at the changes to `array_declaration()`. Previously,
-I was going to call an `array_initialisation()` function, but I decided to
-move all of the initialisation code into `array_declaration()` in `decl.c`.
-We will take it in stages.
+但如果一个数组被声明为大小 *N*，
+却给了超过 *N* 个初始化值，
+那就必须阻止。
+下面来看 `array_declaration()` 的改动。
+
+之前我本来打算额外写一个 `array_initialisation()` 函数，
+但后来决定：
+干脆把所有初始化相关代码
+直接并回 `decl.c` 里的 `array_declaration()`。
+下面分阶段看。
 
 ```c
 // Given the type, name and class of an variable, parse
@@ -332,9 +407,13 @@ static struct symtable *array_declaration(...) {
   match(T_RBRACKET, "]");
 ```
 
-If there's a number between the '[' ']' tokens, parse it and set `nelems`
-to this value. If there is no number, we leave it set to -1 to indicate this.
-We also check that the number is positive and non-zero.
+如果 `'['` 和 `']'` 之间给了一个数字，
+就把它解析出来并记录到 `nelems`。
+如果没有，
+那就保留 `-1`，
+表示“大小尚未给定”。
+同时还会检查：
+这个数必须是正数且不能为零。
 
 ```c
     // Array initialisation
@@ -347,7 +426,7 @@ We also check that the number is positive and non-zero.
     match(T_LBRACE, "{");
 ```
 
-Right now I'm only dealing with global arrays.
+目前我只处理全局数组初始化。
 
 ```c
 #define TABLE_INCREMENT 10
@@ -361,10 +440,14 @@ Right now I'm only dealing with global arrays.
     initlist= (int *)malloc(maxelems *sizeof(int));
 ```
 
-We create an initial list of either 10 integers, or `nelems` if
-the array was given a fixed size. However, for arrays with no fixed size,
-we cannot predict how big the initialisation list will be. So we must be
-prepared to grow the list.
+这里先创建一份初始化列表。
+如果数组本来已经给定了大小，
+那就按 `nelems` 分配；
+否则先分配 10 个整数的空间。
+
+但如果数组本身没有固定大小，
+那我们就没法预先知道初始化列表到底会有多长。
+所以后面还得支持动态扩容。
 
 ```c
     // Loop getting a new literal value from the list
@@ -377,8 +460,9 @@ prepared to grow the list.
       scan(&Token);
 ```
 
-Get the next literal value and ensure we don't have more initial values
-that the array size if it was specified.
+这里读取下一个字面量值，
+并且如果数组大小是固定的，
+就确保初始化值数量不会超过该大小。
 
 ```c
       // Increase the list size if the original size was
@@ -389,7 +473,7 @@ that the array size if it was specified.
       }
 ```
 
-Here is where we increase the initialisation list size as necessary.
+这就是初始化列表按需扩容的地方。
 
 ```c
       // Leave when we hit the right curly bracket
@@ -403,8 +487,10 @@ Here is where we increase the initialisation list size as necessary.
     }
 ```
 
-Parse the closing right curly bracket or a comma that separates values.
-Once out of the loop, we now have an `initlist` with values in it.
+这里负责处理结束用的右花括号，
+或者值与值之间的逗号。
+等跳出这个循环之后，
+我们就得到了一份真正填好内容的 `initlist`。
 
 ```c
     // Zero any unused elements in the initlist.
@@ -415,10 +501,12 @@ Once out of the loop, we now have an `initlist` with values in it.
   }
 ```
 
-We may not have been given enough initialisation values to meet the
-specified size of the initialisation list, so zero out all the ones
-that were not initialised. It is here that we attach the initialisation
-list to the symbol table entry.
+如果给出的初始化值数量
+少于数组声明的目标大小，
+那剩余那些还没被初始化的位置
+就全部补零。
+也正是在这里，
+我们把初始化列表真正挂到符号表项里。
 
 ```c
   // Set the size of the array and the number of elements
@@ -431,18 +519,23 @@ list to the symbol table entry.
 }
 ```
 
-We can finally updated `nelems` and `size` in the symbol table entry.
-Once this is done, we can call `genglobsym()` to create the memory
-storage for the array.
+到这一步，
+终于可以把 `nelems` 和 `size`
+都写回符号表项了。
+完成之后，
+再调用 `genglobsym()`，
+为这个数组真正生成内存空间。
 
-## Changes to `cgglobsym()`
+## 对 `cgglobsym()` 的修改
 
-Before we look at the assembly output of an example array initialisation,
-we need to see how the changes of `nelems` and `size` have affected the
-code that generates the assembly for the memory storage.
+在看某个数组初始化示例生成出来的汇编之前，
+我们还得先看一眼：
+`nelems` 和 `size` 的变化，
+到底怎样影响了“生成变量存储空间”的那部分代码。
 
-`genglobsym()` is the front-end function which simply calls `cgglobsym()`.
-Let's look at this function in `cg.c`:
+`genglobsym()` 是一个前端包装函数，
+它内部只是简单调用 `cgglobsym()`。
+下面来看 `cg.c` 中的这个函数：
 
 ```c
 // Generate a global symbol but not functions
@@ -467,8 +560,9 @@ void cgglobsym(struct symtable *node) {
   }
 ```
 
-Right now, arrays have their `type` set to be a pointer to the underlying
-element type. This allows us to do:
+现在数组的 `type`
+仍然被设成“底层元素类型的指针”。
+这样就能支持下面这种写法：
 
 ```c
   char a[45];
@@ -476,9 +570,12 @@ element type. This allows us to do:
   b= a;         // as they are of same type
 ```
 
-In terms of generating storage, we need to know the size of the elements,
-so we call `value_at()` to do this. For scalars, `size` and `type` are
-stored as-is in the symbol table entry.
+不过从生成存储空间的角度来说，
+我们真正需要知道的是“元素本身的大小”，
+所以这里要通过 `value_at()` 来取出这个信息。
+而对标量来说，
+`size` 和 `type`
+直接就保存在符号表项里。
 
 ```c
   // Generate the global identity and the label
@@ -487,7 +584,8 @@ stored as-is in the symbol table entry.
   fprintf(Outfile, "%s:\n", node->name);
 ```
 
-As before. But now the code is different:
+这部分和以前一样。
+但后面的代码已经不同了：
 
 ```c
   // Output space for one or more elements
@@ -522,23 +620,27 @@ As before. But now the code is different:
 
 ```
 
-For every element, get its intial value from the `initlist` or use zero
-if no initialisation list. Based on the size of each element, output
-either a byte, a long or a quad.
+对于每一个元素，
+先从 `initlist` 里取出它的初始值；
+如果没有初始化列表，
+那就默认取 0。
+然后根据元素大小，
+输出 `.byte`、`.long` 或 `.quad`。
 
-For `char *` elements, we have the label of the string literal's base
-in the initialisation list, so output "L%d" (i.e. the label) instead
-of the integer literal value.
+如果元素类型是 `char *`，
+那初始化列表里保存的其实是字符串字面量的标签号，
+因此这里输出的是 `"L%d"`，
+而不是那个整数本身。
 
-### Array Initialisation Examples
+### 数组初始化示例
 
-Here is a small example of an array initialisation:
+下面是一个很小的数组初始化例子：
 
 ```c
 int x[4]= { 1, 4, 17 };
 ```
 
-generates:
+它会生成：
 
 ```
         .globl  x
@@ -549,18 +651,24 @@ x:
         .long   0
 ```
 
-## Test Programs
+## 测试程序
 
-I won't go through the test programs, but the programs
-`tests/input89.c` through to `tests/input99.c` check that the
-compiler is generating sensible initialisation code as well as catching
-suitable fatal errors.
+我就不一一展开讲这些测试程序了，
+不过 `tests/input89.c`
+一直到 `tests/input99.c`
+会一起检查：
+编译器是否生成了合理的初始化代码，
+以及是否能在不合法情况下抛出合适的 fatal 错误。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-So that was a lot of work! Three steps forward and one step back, as
-they say. I'm happy, though, because the changes to the symbol table
-make much more sense than what I had before.
+这一部分的工作量确实不小。
+正所谓三步前进，
+一步后退。
+不过我还是挺满意的，
+因为现在的符号表设计，
+比我之前那套要合理得多。
 
-In the next part of our compiler writing journey, we will try to
-add local variable initialisation to the compiler. [Next step](../41_Local_Var_Init/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会尝试把“局部变量初始化”
+也加入编译器。 [下一步](../41_Local_Var_Init/Readme.md)
