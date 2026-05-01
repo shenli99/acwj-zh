@@ -1,52 +1,63 @@
-# Part 12: Types, part 1
+# 第 12 部分：类型，第 1 部分
 
-I've just begun the process to add types to our compiler. Now, I should
-warn you that this is new to me, as in my
-[previous compiler](https://github.com/DoctorWkt/h-compiler) I only had
-`int`s. I've resisted the urge to look at the SubC source code for ideas.
-Thus, I'm striking out on my own and it's likely that I will have to redo
-some of the code as I deal with the greater issues involving types.
+我刚刚开始把类型加入编译器。
+先说明一下：这对我来说也是新的领域，
+因为在我
+[之前写的编译器](https://github.com/DoctorWkt/h-compiler)
+里，只有 `int` 一种类型。
+我还刻意忍住没有去看 SubC 的源码找思路。
+所以这一次我算是自己摸着石头过河，
+而且随着类型问题越来越复杂，
+我很可能还得回过头重写一部分代码。
 
-## What Types for Now?
+## 目前先支持哪些类型？
 
-I'll start with `char` and `int` for our global variables. We've already
-added the `void` keyword for functions. In the next step I will add
-function return values. So, for now, `void` exists but I'm not fully
-dealing with it.
+对全局变量来说，我先支持 `char` 和 `int`。
+函数部分我们已经加入了 `void` 关键字。
+下一步我会再加上函数返回值。
+所以现在虽然有 `void`，
+但我还没有把它完整地纳入整个类型体系里。
 
-Obviously, `char` has a much more limited range of values that `int`.
-Like SubC, I'm going to use the range 0 .. 255 for `char`s and
-a range of signed values for `int`s.
+显然，`char` 的取值范围要比 `int` 小得多。
+和 SubC 一样，
+我打算让 `char` 采用 0 到 255 的范围，
+而 `int` 则采用有符号整数范围。
 
-This means that we can widen `char` values to become `int`s, but we
-must warn the developer if they try to narrow `int` values down to a
-`char` range.
+这意味着：
+我们可以把 `char` 扩宽（widen）成 `int`，
+但如果开发者想把 `int` 缩窄到 `char` 的范围，
+我们就必须给出警告，甚至拒绝这种行为。
 
-## New Keywords and Tokens
+## 新关键字与 token
 
-There is only the new 'char' keyword and the T_CHAR token. Nothing
-exciting here.
+这里唯一新增的只有关键字 `char`，
+以及 token `T_CHAR`。
+没有什么特别激动人心的变化。
 
-## Expression Types
+## 表达式类型
 
-From now on, every expression has a type. This includes:
+从现在开始，每个表达式都会有一个类型。
+这包括：
 
- + integer literals, e.g 56 is an `int`
- + maths expressions, e.g. 45 - 12 is an `int`
- + variables, e.g. if we declared `x` as a `char`, then
-   it's *rvalue* is a `char`
+ + 整数字面量，例如 56 是一个 `int`
+ + 数学表达式，例如 `45 - 12` 是一个 `int`
+ + 变量，例如如果我们把 `x` 声明成 `char`，
+   那它的 *rvalue* 类型就是 `char`
 
-We are going to have to track the type of each expression as we evaluate
-it, to ensure we can widen it as required or refuse to narrow it if
-necessary.
+我们必须在求值表达式的过程中一路跟踪类型，
+从而判断什么时候需要扩宽，
+什么时候必须拒绝不合法的缩窄。
 
-In the SubC compiler, Nils created a single *lvalue* structure. A pointer
-to this single stucture was passed around in the recursive parser to
-track the type of any expression at a point in its parsing.
+在 SubC 编译器里，Nils 创建了一个统一的 *lvalue* 结构体。
+递归解析器在解析任何表达式时，
+都会把指向这一个结构体的指针一路传递下去，
+从而追踪当前表达式的类型。
 
-I've taken a different tack. I've modified our Abstract Syntax Tree node
-to have a `type` field which holds the type of the tree at that point.
-In `defs.h`, here are the types I've created so far:
+我采用了另一条路。
+我修改了抽象语法树节点，
+给它加了一个 `type` 字段，
+用来保存该节点对应树在当前位置的类型。
+在 `defs.h` 中，目前我定义的类型如下：
 
 ```c
 // Primitive types
@@ -55,15 +66,21 @@ enum {
 };
 ```
 
-I've called them *primitive* types, as Nils did in SubC, because I can't
-think of a better name for them. Data types, perhaps? The P_NONE value
-indicates that the AST node *doesn't* represent an expression and has no
-type. An example is the A_GLUE node type which glues statements together:
-once the left-hand statement is generated, there is no type to speak of.
+我把它们叫作 *primitive* types，
+也是沿用了 SubC 的说法，
+因为我暂时也想不到更好的名字。
+也许叫“基础类型”更合适？
+其中 `P_NONE` 表示该 AST 节点*并不表示一个表达式*，
+因此没有类型。
+一个例子就是 `A_GLUE` 节点：
+它只是把语句粘接在一起，
+左边的语句代码生成完之后，
+并不存在什么“类型”可言。
 
-If you look in `tree.c`, you will see that the functions to build AST
-nodes have been modified to also assign to the `type` field in the new
-AST node structure (in `defs.h`):
+如果你去看 `tree.c`，
+会发现构建 AST 节点的那些函数现在都被修改过了，
+它们会同时给新 AST 结构里的 `type` 字段赋值
+（定义于 `defs.h`）：
 
 ```c
 struct ASTnode {
@@ -73,18 +90,20 @@ struct ASTnode {
 };
 ```
 
-## Variable Declarations and Their Types
+## 变量声明以及它们的类型
 
-We now have at least two ways to declare global variables:
+现在我们至少已经有两种方式可以声明全局变量：
 
 ```c
   int x; char y;
 ```
 
-We'll need to parse this, yes. But first, how do we record the type for
-each variable? We need to modify the `symtable` structure. I've also added 
-the details of the "structural type" of the symbol which I'll use in the
-future (in `defs.h`):
+当然，我们需要能解析它。
+但在那之前，要先回答一个问题：
+每个变量的类型该如何记录？
+因此我们需要修改 `symtable` 结构。
+我还顺手加入了符号“结构类型（structural type）”的信息，
+以后会用得上（定义于 `defs.h`）：
 
 ```c
 // Structural types
@@ -100,8 +119,8 @@ struct symtable {
 };
 ```
 
-There's new code in `newglob()` in `sym.c` to initialise these new
-fields:
+在 `sym.c` 的 `newglob()` 里，
+现在也有了初始化这些新字段的代码：
 
 ```c
 int addglob(char *name, int type, int stype) {
@@ -112,10 +131,10 @@ int addglob(char *name, int type, int stype) {
 }
 ```
 
-## Parsing Variable Declarations
+## 解析变量声明
 
-It's time to separate out the parsing of the type from the parsing
-of the variable itself. So, in `decl.c` we now have:
+现在该把“解析类型”和“解析变量本身”这两件事拆开了。
+于是，在 `decl.c` 中我们现在有：
 
 ```c
 // Parse the current token and
@@ -141,32 +160,37 @@ void var_declaration(void) {
 }
 ```
 
-## Dealing with Expression Types
+## 处理表达式类型
 
-All of the above is the easy part done! We now have:
+上面的部分都算是简单部分，已经做完了。
+现在我们有了：
 
-  + a set of three types: `char`, `int` and `void`,
-  + parsing of variable declarations to find their type,
-  + capture of each variable's type in the symbol table, and
-  + storage of the type of an expression in each AST node
+  + 三种类型：`char`、`int` 和 `void`
+  + 变量声明的类型解析逻辑
+  + 在符号表里记录每个变量类型的能力
+  + 在每个 AST 节点里保存表达式类型的能力
 
-Now we need to actually fill in the type in the AST nodes that
-we build. Then we have to decide when to widen types and/or
-reject type clashes. Let's get on with the job!
+接下来真正麻烦的是：
+把这些类型信息实际填进我们构建出来的 AST 节点里。
+然后，我们还得决定什么时候需要扩宽类型，
+什么时候需要拒绝类型冲突。
+继续动手吧。
 
-## Parsing Primary Terminals
+## 解析基础终结符
 
-We'll start with the parsing of integer literal values and
-variable identifiers. One wrinkle is that we want to be able to do:
+先从整数字面量和变量标识符的解析开始。
+这里有个小细节：
+我们希望下面这样的代码能够工作：
 
 ```c
   char j; j= 2;
 ```
 
-But if we mark the `2` as a P_INT, then we won't be able to narrow
-the value when we try to store it in the P_CHAR `j` variable. For
-now, I've added some semantic code to keep small integer literal
-values as P_CHARs:
+但如果我们把 `2` 直接标记成 `P_INT`，
+那之后存进 `P_CHAR` 类型的变量 `j` 时，
+就没法顺利完成缩窄。
+所以目前我加了一些语义逻辑：
+把小范围的整数字面量先保留成 `P_CHAR`：
 
 ```c
 // Parse a primary factor and return an
@@ -205,18 +229,17 @@ static struct ASTnode *primary(void) {
 }
 ```
 
-Also note that, for identifiers, we can easily get their type
-details from the global symbol table.
+另外还要注意，对于标识符来说，
+我们很容易就能从全局符号表中拿到它的类型信息。
 
-## Building Binary Expressions: Comparing Types
+## 构建二元表达式：比较类型
 
-As we build maths expressions with our binary maths operators, we
-will have a type from the left-hand child and a type from the right-hand
-child. Here is where we are going to have to either widen, do nothing, or
-reject the expression if the two types are incompatible.
+在构建带有二元数学运算符的表达式时，
+我们会拿到左孩子的类型和右孩子的类型。
+这正是必须决定“扩宽、保持不变，还是直接拒绝表达式”的地方。
 
-For now, I have a new file `types.c` with a function that compares
-the types on either side. Here's the code:
+目前我新建了一个 `types.c` 文件，
+里面有一个函数专门比较左右两边的类型。代码如下：
 
 ```c
 // Given two primitive types, return true if they are compatible,
@@ -246,32 +269,40 @@ int type_compatible(int *left, int *right, int onlyright) {
 }
 ```
 
-There's a fair bit going on here. Firstly, if both types are the same
-we can simply return True. Anything with a P_VOID cannot be mixed
-with another type.
+这里面的事情不少。
+首先，如果两个类型完全一样，
+那就可以直接返回 True。
+而任何和 `P_VOID` 搭配的情况都不允许。
 
-If one side is a P_CHAR and the other is a P_INT, we can widen the
-result to a P_INT. The way I do this is to modify the type information
-that comes in and I replace it either with zero (do nothing), or a new
-AST node type A_WIDEN. This means: widen the more narrow child's value
-to be as wide as the wider child's value. We'll see this in operation soon.
+如果一边是 `P_CHAR`，另一边是 `P_INT`，
+那么我们就可以把较窄的一边扩宽成 `P_INT`。
+我的做法是直接修改传入的类型信息：
+把它改成 0（表示“不需要做事”），
+或者改成一个新的 AST 节点类型 `A_WIDEN`。
+它的含义是：
+把较窄孩子的值扩宽到与较宽孩子一致。
+很快就能看到它的实际用法。
 
-There is one extra argument `onlyright`. I use this when we get to
-A_ASSIGN AST nodes where we are assigning the left-child's expression
-to the variable *lvalue* on the right. If this is set, don't let a
-P_INT expression be transferred to a P_CHAR variable
+这里还有一个额外参数 `onlyright`。
+它会在处理 `A_ASSIGN` AST 节点时派上用场，
+因为赋值语句是把左孩子表达式的值
+赋给右边那个变量 *lvalue*。
+如果这个参数被设置，
+我们就不允许把一个 `P_INT` 表达式塞进 `P_CHAR` 变量。
 
-Finally, for now, let any other type pairs through.
+最后，目前先让剩余的其他类型组合全部通过。
 
-I think I can guarantee that this will need to be changed once we
-bring in arrays and pointers. I also hope I can find a way to make
-the code simpler and more elegant. But it will do for now.
+我几乎可以肯定：
+等以后把数组和指针引进来之后，
+这段逻辑肯定还得改。
+我也希望到时候能把它改得更简单、更优雅一点。
+但眼下先够用。
 
-## Using `type_compatible()` in Expressions
+## 在表达式中使用 `type_compatible()`
 
-I've used `type_compatible()` in three different places in this version
-of the compiler. We'll start with merging expressions with binary operators.
-I've modified the code in `binexpr()` in `expr.c` to do this:
+这一版编译器里，我在三个地方用了 `type_compatible()`。
+先从用二元运算符合并表达式的地方说起。
+我修改了 `expr.c` 中 `binexpr()` 的代码，如下：
 
 ```c
     // Ensure the two types are compatible.
@@ -291,18 +322,23 @@ I've modified the code in `binexpr()` in `expr.c` to do this:
     left = mkastnode(arithop(tokentype), left->type, left, NULL, right, 0);
 ```
 
-We reject incompatible types. But, if `type_compatible()` returned
-non-zero `lefttype` or `righttype` values, these are actually the
-A_WIDEN value. We can use this to build a unary AST node with the
-narrow child as the child. When we get to the code generator, it will
-now know that this child's value has to be widened.
+如果类型不兼容，我们直接拒绝。
+而如果 `type_compatible()` 返回的 `lefttype` 或 `righttype`
+不是 0，
+它们其实就是 `A_WIDEN`。
+于是我们就可以构建一个一元 AST 节点，
+把较窄的那个孩子挂在下面。
+这样代码生成器在后面就知道：
+这个孩子的值必须被扩宽。
 
-Now, where else do we need to widen expression values?
+那么，除了这里以外，
+我们还在哪些地方需要扩宽表达式值？
 
-## Using `type_compatible()` to Print Expressions
+## 用 `type_compatible()` 处理 `print`
 
-When we use the `print` keyword, we need to have an `int` expression
-for it to print. So we need to change `print_statement()` in `stmt.c`:
+当我们使用 `print` 关键字时，
+需要保证传进去的是一个 `int` 表达式。
+因此我们要修改 `stmt.c` 中的 `print_statement()`：
 
 ```c
 static struct ASTnode *print_statement(void) {
@@ -323,13 +359,13 @@ static struct ASTnode *print_statement(void) {
   if (righttype) tree = mkastunary(righttype, P_INT, tree, 0);
 ```
 
-## Using `type_compatible()` to Assign to a Variable
+## 用 `type_compatible()` 处理赋值
 
-This is the last place where we need to check types. When we assign to
-a variable, we need to ensure that we can widen the right-hand side
-expression. We've got to reject any attempt to store a wide type into
-a narrow variable. Here is the new code in `assignment_statement()` in
-`stmt.c`:
+这是第三个需要做类型检查的地方。
+给变量赋值时，
+我们必须确认右值表达式能否被扩宽到左边变量所要求的类型；
+同时必须拒绝把宽类型硬塞进窄变量。
+下面是 `stmt.c` 中 `assignment_statement()` 的新代码：
 
 ```c
 static struct ASTnode *assignment_statement(void) {
@@ -355,28 +391,29 @@ static struct ASTnode *assignment_statement(void) {
     left = mkastunary(lefttype, right->type, left, 0);
 ```
 
-Note the 1 at the the end to this call to `type_compatible()`.
-This enforces the semantics that we cannot save a wide value to
-a narrow variable.
+注意这里调用 `type_compatible()` 时最后那个 `1`。
+它强制执行了这样的语义规则：
+不允许把更宽的值存进更窄的变量。
 
-Given all of the above, we now can parse a few types and enforce
-some sensible language semantics: widen values where possible,
-prevent type narrowing and prevent unsuitable type clashes. Now
-we move to the code generation side of things.
+综合上面的修改，
+我们现在已经可以解析若干类型，并落实一些基本合理的语义规则：
+能扩宽时扩宽，阻止类型缩窄，并阻止不合适的类型冲突。
+接下来就轮到代码生成侧了。
 
-## The Changes to x86-64 Code Geneneration
+## x86-64 代码生成的变化
 
-Our assembly output is register based and essentially they are fixed
-in size. What we can influence is:
+我们的汇编输出是基于寄存器的，
+而寄存器本身大小基本固定。
+我们真正能影响的是：
 
- + the size of the memory locations to store variables, and
- + how much of a register is used hold data, e.g. one byte for
-   characters, eight bytes for a 64-bit integer.
+ + 变量在内存中的存储大小
+ + 寄存器里实际使用多少位来保存数据，
+   比如字符用一个字节，64 位整数用八个字节
 
-I'll start with the x86-64 specific code in `cg.c`, and then I'll show how
-this is used in the generic code generator in `gen.c`.
+我先从 `cg.c` 里的 x86-64 专用代码讲起，
+然后再说明它在通用代码生成器 `gen.c` 里如何使用。
 
-Let's start with generating the storage for variables.
+先从变量存储的生成开始：
 
 ```c
 // Generate a global symbol
@@ -389,9 +426,9 @@ void cgglobsym(int id) {
 }
 ```
 
-We extract the type from the variable slot in the symbol table and choose
-to allocate 1 or 8 bytes for it depending on this type. Now we need to
-load the value into a register:
+我们从符号表里取出变量类型，
+然后据此决定给它分配 1 字节还是 8 字节。
+接下来是把值加载到寄存器里：
 
 ```c
 // Load a value from a variable into a register.
@@ -408,10 +445,11 @@ int cgloadglob(int id) {
   return (r);
 ```
 
-The `movq` instruction moves eight bytes into the 8-byte register. The `movzbq`
-instruction zeroes the 8-byte register and then moves a single byte into it.
-This also implicitly widens the one byte value to eight bytes. Our storage
-function is similar:
+`movq` 会把 8 字节移动到 8 字节寄存器中。
+`movzbq` 则会先把 8 字节寄存器清零，
+然后再把 1 字节内容移动进去。
+这也就隐式地完成了“把 1 字节值扩宽到 8 字节”的动作。
+我们的存储函数与之类似：
 
 ```c
 // Store a register's value into a variable
@@ -425,11 +463,11 @@ int cgstorglob(int r, int id) {
 }
 ```
 
-This time we have to use the "byte" name of the register and the `movb`
-instruction to move a single byte.
+这一次，我们必须使用寄存器的“字节版本”名字，
+再配合 `movb` 指令来只移动一个字节。
 
-Luckily, the `cgloadglob()` function has already done the widening of
-P_CHAR variables. So this is the code for our new `cgwiden()` function:
+幸运的是，`cgloadglob()` 已经把 `P_CHAR` 变量完成了扩宽。
+所以我们的新 `cgwiden()` 函数目前长这样：
 
 ```c
 // Widen the value in the register from the old
@@ -440,19 +478,21 @@ int cgwiden(int r, int oldtype, int newtype) {
   return (r);
 }
 ```
-## The Changes to The Generic Code Geneneration
 
-With the above in place, there are only a few changes to the generic
-code generator in `gen.c`:
+## 通用代码生成器的变化
 
-  + The calls to `cgloadglob()` and `cgstorglob()` now take the
-    symbol's slot number and not the symbol's name.
-  + Similarly, `genglobsym()` now receives the symbol's slot number and
-    passes it on to `cgglobsym()`
+有了上面的基础，
+`gen.c` 中通用代码生成器其实只需要少量修改：
 
-The only major change is the code to deal with the new A_WIDEN AST node type.
-We don't need this node (as `cgwiden()` does nothing), but it's here for
-other hardware platforms:
+  + `cgloadglob()` 和 `cgstorglob()` 现在接收的是符号槽位号，
+    而不再是符号名字
+  + 同样地，`genglobsym()` 现在接收槽位号，
+    再把它传给 `cgglobsym()`
+
+唯一一个较大的改动，是处理新的 `A_WIDEN` AST 节点类型。
+在 x86-64 上我们实际上不需要这个节点
+（因为 `cgwiden()` 目前什么都不做），
+但它是为其他硬件平台预留的：
 
 ```c
     case A_WIDEN:
@@ -460,9 +500,9 @@ other hardware platforms:
       return (cgwiden(leftreg, n->left->type, n->type));
 ```
 
-## Testing the New Type Changes
+## 测试新的类型改动
 
-Here is my test input file, `tests/input10`:
+这是我的测试输入文件 `tests/input10`：
 
 ```c
 void main()
@@ -477,9 +517,10 @@ void main()
 }
 ```
 
-I check that we can assign to and print from `char` and `int` types.
-I also verify that, for `char` variables, we will overflow in the
-value sequence: 253, 254, 255, 0, 1, 2 etc.
+我在这里验证了：
+我们可以给 `char` 和 `int` 赋值并打印它们；
+同时也验证了对 `char` 变量来说，
+数值序列会发生溢出：253、254、255、0、1、2……
 
 ```
 $ make test
@@ -502,7 +543,7 @@ cc -o out out.s
 1
 ```
 
-Let's look at some of the assembly that was generated:
+下面来看一部分生成出来的汇编代码：
 
 ```
         .comm   i,8,8                   # Eight byte i storage
@@ -518,24 +559,10 @@ Let's look at some of the assembly that was generated:
         movb    %r8b, j(%rip)           # j= 253
 L3:
         movzbq  j(%rip), %r8
-        movq    $2, %r9
-        cmpq    %r9, %r8                # while j != 2
-        je      L4
-        movzbq  j(%rip), %r8
-        movq    %r8, %rdi               # print j
-        call    printint
-        movzbq  j(%rip), %r8
-        movq    $1, %r9                 # j= j + 1
-        addq    %r8, %r9
-        movb    %r9b, j(%rip)
-        jmp     L3
 ```
 
-Still not the most elegant assembly code, but it does work. Also,
-`$ make test` confirms that all the previous code examples still work.
+## 总结与下一步
 
-## Conclusion and What's Next
-
-In the next part of our compiler writing journey, we will
-add function calls with one argument, and returning a value
-from  a function. [Next step](../13_Functions_pt2/Readme.md)
+类型系统的第一步已经搭起来了。
+下一部分我们会继续推进，
+同时把函数返回值也纳入进来。 [下一步](../13_Functions_pt2/Readme.md)

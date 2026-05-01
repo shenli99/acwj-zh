@@ -1,46 +1,47 @@
-# Part 11: Functions, part 1
+# 第 11 部分：函数，第 1 部分
 
-I want to start work on implementing functions into our language, but I
-know this is going to involve a heck of a lot of steps. Some things
-that we will have to deal with along the way are:
+我想开始在这门语言中实现函数，但我知道这会牵扯出大量步骤。
+沿途我们必须处理的问题包括：
 
- + Types of data: `char`, `int`, `long` etc.
- + The return type of each function
- + The number of arguments to each function
- + Variables local to a function versus global variables
+ + 数据类型：`char`、`int`、`long` 等
+ + 每个函数的返回类型
+ + 每个函数的参数个数
+ + 函数局部变量与全局变量之间的区别
 
-That is way too much to get done in this part of our journey. So what I'm
-going to do here is to get to the point where we can *declare* different
-functions. Only the `main()` function in our resulting executable will
-run, but we will have the ability to generate code for multiple function.
+这些内容显然不可能在这一部分里全部完成。
+所以我在这里的目标是：先走到“能够声明不同函数”的阶段。
+最终生成的可执行程序里，仍然只有 `main()` 会真正运行，
+但我们已经具备为多个函数生成代码的能力。
 
-Hopefully soon, the language that our compiler recognises will be
-enough of a subset of C that our input will be recognisable by a "real" C
-compiler. But just not yet.
+希望再过不久，编译器所识别的这门语言就会成为一个足够像 C 的子集，
+以至于“真正的” C 编译器也能看懂我们的输入。
+不过现在还差一点。
 
-## The Simplistic Function Syntax
+## 一个非常简化的函数语法
 
-This is definitely going to be a placeholder, so that we can parse
-something that looks like a function. Once this is done, we can add
-those other important things: types, return types, arguments etc.
+这显然只是个占位版本，
+目的是先让我们能解析出“长得像函数”的东西。
+一旦这个基础打好，
+我们再继续往上叠加那些重要特性：类型、返回类型、参数等等。
 
-So, for now, I will add a function grammar that looks like this in BNF:
+所以，眼下我先加入下面这套 BNF 函数语法：
 
 ```
  function_declaration: 'void' identifier '(' ')' compound_statement   ;
 ```
 
-All functions will be declared `void` and have no arguments. We also won't
-introduce the ability to call a function, so only the `main()` function
-will execute.
+所有函数都声明为 `void`，
+而且不带参数。
+我们也暂时不引入函数调用能力，
+因此最终仍然只有 `main()` 会执行。
 
-We need a new keyword `void` and a new token T_VOID, which are both easy to
-add.
+我们需要一个新的关键字 `void`，
+以及一个新的 token `T_VOID`，这两样都很容易加入。
 
-## Parsing the Simplistic Function Syntax
+## 解析这个简化函数语法
 
-The new function syntax is so simple that we can write a nice, small function
-to parse it (in `decl.c`):
+这个新语法简单到我们可以写一个很短的小函数来解析它
+（位于 `decl.c`）：
 
 ```c
 // Parse the declaration of a simplistic function
@@ -65,14 +66,16 @@ struct ASTnode *function_declaration(void) {
 }
 ```
 
-This is going to do the syntax checking and AST building, but there is
-little to no semantic error checking here. What if a function gets
-redeclared? Well, we won't notice that yet.
+这段代码负责语法检查和 AST 构建，
+但在语义错误检查上几乎还没做什么。
+例如，如果一个函数被重复声明了怎么办？
+目前我们还完全察觉不到。
 
-## Modifications to `main()`
+## 对 `main()` 的修改
 
-With the above function, we can now rewrite some of the code in `main()`
-to parse multiple functions one after the other:
+有了上面的函数之后，
+我们现在可以改写 `main()` 中的一部分代码，
+让它能够连续解析多个函数：
 
 ```c
   scan(&Token);                 // Get the first token from the input
@@ -85,16 +88,17 @@ to parse multiple functions one after the other:
   }
 ```
 
-Notice that I've removed the `genpostamble()` function call. That's because
-its output was technically the postamble to the generated assembly for
-`main()`. We now need some code generation functions to generate the
-beginning of a function and the end of a function.
+注意，我把 `genpostamble()` 的调用去掉了。
+因为它之前输出的实际上只是 `main()` 函数汇编代码的收尾部分。
+现在我们需要的是：有一套代码生成函数，
+专门用来生成“函数开头”和“函数结尾”。
 
-## Generic Code Generation for Functions
+## 为函数添加通用代码生成
 
-Now that we have an A_FUNCTION AST node, we had better add some code
-in the generic code generator, `gen.c` to deal with it. Looking above,
-this is a *unary* AST node with a single child:
+既然现在有了 `A_FUNCTION` AST 节点，
+那我们当然得在通用代码生成器 `gen.c` 中加入对应逻辑。
+回头看上面的构造方式，
+它是一个*一元* AST 节点，只带一个孩子：
 
 ```c
   // Return an A_FUNCTION node which has the function's nameslot
@@ -102,10 +106,10 @@ this is a *unary* AST node with a single child:
   return(mkastunary(A_FUNCTION, tree, nameslot));
 ```
 
-The child has the sub-tree which holds the compound statement that
-is the body of the function. We need to generate the start of the
-function *before* we generate the code for the compound statement.
-So here's the code in `genAST()` to do this:
+这个孩子就是保存函数体复合语句的那棵子树。
+而我们必须在生成复合语句代码*之前*，
+先把函数的起始汇编代码生出来。
+因此 `genAST()` 中加入了下面这段逻辑：
 
 ```c
     case A_FUNCTION:
@@ -116,16 +120,14 @@ So here's the code in `genAST()` to do this:
       return (NOREG);
 ```
 
-## x86-64 Code Generation
+## x86-64 代码生成
 
-Now we are at the point where we have to generate the code to set the
-stack and frame pointer for each function, and also to undo this at
-the end of the function and return to the function's caller.
+到这里，我们就必须生成每个函数建立栈指针和帧指针的代码，
+并在函数末尾撤销这些设置，然后返回给调用者。
 
-We already have this code in `cgpreamble()` and `cgpostamble()`, but
-`cgpreamble()` also has the assembly code for the `printint()` function.
-Therefore, it's a matter of separating out these snippets of assembly
-code into new functions in `cg.c`:
+其实这套代码我们早就在 `cgpreamble()` 和 `cgpostamble()` 里有了，
+只不过 `cgpreamble()` 还顺带包含了 `printint()` 函数的汇编实现。
+因此现在要做的，只是把这些汇编片段拆到 `cg.c` 里的新函数中：
 
 ```c
 // Print out the assembly preamble
@@ -150,10 +152,11 @@ void cgfuncpostamble() {
 }
 ```
 
-## Testing The Function Generation Functionality
+## 测试函数生成功能
 
-We have a new test program, `tests/input08` which is starting to look
-like a C program (apart from the `print` statement):
+现在有了一个新的测试程序 `tests/input08`，
+它已经开始看起来像一份 C 程序了
+（除了 `print` 语句这一点）：
 
 ```c
 void main()
@@ -165,7 +168,7 @@ void main()
 }
 ```
 
-To test this, `make test8` which does:
+要测试它，可以执行 `make test8`，也就是：
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c scan.c
@@ -185,21 +188,21 @@ cc -o out out.s
 10
 ```
 
-I'm not going to look at the assembly output as it's identical to the
-code generated for the FOR loop test in the last part.
+我这里就不再看汇编输出了，
+因为它和上一部分 `for` 循环测试里生成的代码完全一样。
 
-However, I've added `void main()` into all the previous test input files,
-as the language requires a function declaration before the compound
-statement code.
+不过，我已经把之前所有测试输入文件都改成了包含 `void main()`，
+因为现在这门语言要求：
+在复合语句代码之前必须先有一个函数声明。
 
-The test program `tests/input09` has two functions declared in it.
-The compiler happily generates working assembly code for each function,
-but at present we can't run the code for the second function.
+测试程序 `tests/input09` 里声明了两个函数。
+编译器现在已经能为这两个函数都生成可用的汇编代码，
+只是目前我们还不能真正运行第二个函数的代码。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We've made a good start at adding functions to our language. For now,
-it's a pretty simplistic function declaration only.
+我们已经为语言中的函数支持开了一个不错的头。
+当然，目前还只是非常简化的函数声明而已。
 
-In the next part of our compiler writing journey, we will begin
-the process to add types to our compiler. [Next step](../12_Types_pt1/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会开始为编译器加入类型系统。 [下一步](../12_Types_pt1/Readme.md)

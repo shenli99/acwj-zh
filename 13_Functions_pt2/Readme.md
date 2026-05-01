@@ -1,47 +1,51 @@
-# Part 13: Functions, part 2
+# 第 13 部分：函数，第 2 部分
 
-In this part of our compiler writing journey, I want to add the ability to
-call functions and return a value. Specifically:
+在编译器编写之旅的这一部分中，
+我想加入函数调用以及返回值能力。具体来说：
 
- + define a function, which we already have,
- + call a function with a single value which for now cannot be used,
- + return a value from a function, 
- + use a function call as both a statement and also an expression, and
- + ensure that void functions never return a value and non-void
-   functions must return a value.
+ + 定义函数，这一点我们已经有了
+ + 调用一个函数，并给它传入一个值；目前这个值暂时还不会被函数真正使用
+ + 从函数中返回一个值
+ + 既能把函数调用当成语句，也能把它当成表达式
+ + 保证 `void` 函数绝不返回值，而非 `void` 函数必须返回值
 
-I've just got this working. I found that I spent most of my time dealing
-with types. So, on with the writeup.
+我刚刚把这一套做通了。
+结果发现我大部分时间其实都花在处理类型问题上。
+下面开始记录。
 
-## New Keywords and Tokens
+## 新关键字与 token
 
-I've been using 8-byte (64-bit) `int`s in the compiler so far, but I've
-realised that Gcc treats `int`s as four bytes (32 bits) wide. Therefore,
-I've decided to introduce the `long` type. So now:
+到目前为止，编译器里一直把 `int` 当成 8 字节（64 位）来处理，
+但我意识到 Gcc 实际上把 `int` 当作 4 字节（32 位）。
+因此我决定引入 `long` 类型。
+所以现在：
 
-  + `char` is one byte wide
-  + `int` is four bytes (32 bits) wide
-  + `long` is eight bytes (64 bits) wide
+  + `char` 宽 1 字节
+  + `int` 宽 4 字节（32 位）
+  + `long` 宽 8 字节（64 位）
 
-We also need the ability to 'return', so we have new keywords 'long'
-and 'return', and associated tokens T_LONG and T_RETURN.
+此外，我们还需要支持 `return`，
+于是新增了关键字 `long` 和 `return`，
+以及对应的 token：`T_LONG` 和 `T_RETURN`。
 
-## Parsing Function Calls
+## 解析函数调用
 
-For now, the BNF syntax that I'm using for a function call is:
+目前，我给函数调用使用的 BNF 语法是：
 
 ```
   function_call: identifier '(' expression ')'   ;
 ```
 
-The function has a name followed by a pair of parentheses. Inside the
-parentheses we must have exactly one argument. I want this to be used
-as both an expression and also as a standalone statement.
+函数名后面跟一对括号，
+括号中必须有且仅有一个参数。
+而我希望这种形式既可以作为表达式使用，
+也可以单独作为一条语句使用。
 
-So we'll start with the function call parser,
-`funccall()` in `expr.c`. When we get called, the identifier
-has already been scanned in and the function's name is in the `Text`
-global variable:
+所以先从函数调用解析器开始，
+也就是 `expr.c` 中的 `funccall()`。
+当这个函数被调用时，
+标识符已经被扫描出来了，
+而函数名保存在全局变量 `Text` 中：
 
 ```c
 // Parse a function call with a single expression
@@ -72,29 +76,39 @@ struct ASTnode *funccall(void) {
 }
 ```
 
-I've left a reminder comment: *Add structural type test*. When a function
-or a variable is declared, the symbol table is marked with the structural
-type S_FUNCTION and S_VARIABLE, respectively. I should add code here to
-confirm the identifier is really an S_FUNCTION.
+我还留了一个提醒注释：*Add structural type test*。
+因为函数或变量在声明时，
+符号表里都会记录结构类型 `S_FUNCTION` 与 `S_VARIABLE`。
+这里我之后还应该补上代码，
+确认这个标识符真的就是一个 `S_FUNCTION`。
 
-We build a new unary AST node, A_FUNCCALL. The child is the single
-expression to pass as the argument. We store the function's symbol-id
-in the node, and we also record the function's return type.
+这里我们构建了一个新的单目 AST 节点 `A_FUNCCALL`。
+它的孩子就是作为参数传入的那个单一表达式。
+同时我们还会在节点中记录函数的符号编号，
+以及函数的返回类型。
 
-## But I Don't Want That Token Any More!
+## 但我不想要刚刚那个 token 了！
 
-There is a parsing problem. We have to distinguish between:
+这里会出现一个解析问题。
+我们必须区分下面这两种情况：
 
 ```
    x= fred + jim;
    x= fred(5) + jim;
 ```
 
-We need to look ahead one token to see if there is a '('. If there is,
-we have a function call. But by doing so, we lose the existing token.
-To solve this problem, I've modified the scanner so that we can put
-back an unwanted token: this will be returned when we get the next token
-instead of a brand-new token. The new code in `scan.c` is:
+为了分辨它们，
+我们必须向前多看一个 token，看看后面是不是 `'('`。
+如果是，那它就是一次函数调用。
+但这样一来，我们又会丢掉刚刚读出来的那个 token。
+
+为了解决这个问题，
+我修改了扫描器，
+让它支持把一个“不想要的 token”放回去：
+这样下一次读取 token 时，
+它会优先返回这个被退回的 token，
+而不是重新扫描新 token。
+`scan.c` 中的新代码如下：
 
 ```c
 // A pointer to a rejected token
@@ -124,11 +138,12 @@ int scan(struct token *t) {
 }
 ```
 
-## Calling a Function as an Expression
+## 把函数调用当成表达式
 
-So now we can look at where, in `expr.c` we need to differentiate
-between a variable name and a function call: it's in `primary()`.
-The new code is:
+现在我们终于能来看：
+在 `expr.c` 的哪里区分“变量名”和“函数调用”。
+答案就在 `primary()` 中。
+新的代码是：
 
 ```c
 // Parse a primary factor and return an
@@ -156,17 +171,18 @@ static struct ASTnode *primary(void) {
 }
 ```
 
-## Calling a Function as a Statement
+## 把函数调用当成语句
 
-We have essentially the same problem when we try to call a function as a
-statement. Here, we have to distinguish between:
+当我们尝试把函数调用写成一条语句时，
+本质上会遇到完全相同的问题。
+因为此时我们必须区分：
 
 ```
   fred = 2;
   fred(18);
 ```
 
-Thus, the new statement code in `stmt.c` is similar to the above:
+因此 `stmt.c` 中新的语句解析代码和上面非常相似：
 
 ```c
 // Parse an assignment statement and return its AST
@@ -188,30 +204,35 @@ static struct ASTnode *assignment_statement(void) {
 }
 ```
 
-We can get away with not rejecting the "unwanted" token here, because there
-*has* to be either an '=' or a '(' next: we can write the parser code knowing
-this is true.
+这里我们其实不需要把“不想要的 token”再 reject 回去，
+因为这里后面*必然*只能是 `'='` 或 `'('`，
+所以解析器可以直接按这个假设写下去。
 
-## Parsing a Return Statement
+## 解析 `return` 语句
 
-In BNF, our return statement looks like:
+按照 BNF，
+我们的 `return` 语句长这样：
 
 ```
   return_statement: 'return' '(' expression ')'  ;
 ```
 
-The parsing is easy: 'return', '(', call `binexpr()`, ')', done! What is more
-difficult is the checking of the type, and if we even should be allowed to
-return at all.
+它的语法解析其实很简单：
+读 `'return'`、读 `'('`、调用 `binexpr()`、读 `')'`，完事。
+真正困难的部分是：
+要检查类型是否匹配，
+以及当前函数到底允不允许 `return`。
 
-Somehow we need to know which function we are actually in, when we get to
-a return statement. I've added a global variable in `data.h`:
+某种意义上，我们得知道：
+当我们在解析一个 `return` 语句时，
+当前到底身处哪个函数中。
+因此我在 `data.h` 中增加了一个全局变量：
 
 ```c
 extern_ int Functionid;         // Symbol id of the current function
 ```
 
-and this is set up in `function_declaration()` in `decl.c`:
+然后在 `decl.c` 的 `function_declaration()` 中设置它：
 
 ```c
 struct ASTnode *function_declaration(void) {
@@ -224,9 +245,11 @@ struct ASTnode *function_declaration(void) {
 }
 ```
 
-With `Functionid` set up each time we enter a function declaration, we
-can get back to parsing and checking the semantics of a return statement.
-The new code is `return_statement()` in `stmt.c`:
+这样一来，每次进入函数声明解析时，
+我们都知道自己当前对应的是哪个函数。
+有了这个信息，
+就可以回到 `return` 语句的语法与语义检查上了。
+下面是 `stmt.c` 中新的 `return_statement()`：
 
 ```c
 // Parse a return statement and return its AST
@@ -264,19 +287,23 @@ static struct ASTnode *return_statement(void) {
 }
 ```
 
-We have a new A_RETURN AST node that returns the expression in the child
-tree. We use `type_compatible()` to ensure the expression matches the
-return type, and widen it if required.
+这里我们新增了一个 `A_RETURN` AST 节点，
+它的孩子就是要返回的表达式子树。
+我们使用 `type_compatible()` 来确认这个表达式是否与函数返回类型兼容，
+并在必要时执行扩宽。
 
-Finally, we see if the function was actually declared `void`. If it was,
-we cannot do a return statement in this function.
+最后，我们还要检查当前函数是不是被声明为 `void`。
+如果是，那么在这个函数里就根本不允许 `return` 一个值。
 
-## Types Revisited
+## 重新审视类型
 
-I introduced `type_compatible()` in the last part of the journey and said
-that I wanted to refactor it. Now that I've added the `long` type, it's
-become necessary to do this. So here is the new version in `types.c`.
-You may want to revisit the commentary on it from the last part of the journey.
+在上一部分里，我引入了 `type_compatible()`，
+并说过自己还想重构它。
+现在随着 `long` 类型的加入，
+这件事已经变成了必要工作。
+下面是 `types.c` 中的新版本。
+如果你愿意的话，
+可以回头对照上一部分的说明一起看。
 
 ```c
 // Given two primitive types,
@@ -312,8 +339,9 @@ int type_compatible(int *left, int *right, int onlyright) {
 }
 ```
 
-I now call `genprimsize()` in the generic code generator which calls
-`cgprimsize()` in `cg.c` to get the size of the various types:
+我现在通过通用代码生成器里的 `genprimsize()`，
+再调用 `cg.c` 中的 `cgprimsize()`，
+来获得各种类型的大小：
 
 ```c
 // Array of type sizes in P_XXX order.
@@ -330,22 +358,25 @@ int cgprimsize(int type) {
 }
 ```
 
-This makes the type sizes platform dependent; other platforms can choose
-different type sizes. It probably means my code to mark a P_INTLIT as a
-`char` not an `int` will need to be refactored:
+这样一来，类型大小就变成了平台相关的内容；
+其他平台完全可以选择不同的类型大小。
+这大概也意味着我之前那段“把 `P_INTLIT` 判成 `char` 而不是 `int`”的逻辑，
+以后也得重构：
 
 ```c
   if ((Token.intvalue) >= 0 && (Token.intvalue < 256))
 ```
 
-## Ensuring Non-Void Functions Return a Value
+## 确保非 `void` 函数一定返回值
 
-We've just ensured that void functions can't return a value. Now how to
-we ensure that non-void functions will always return a value? To do
-this, we have to ensure that the last statement in the function is a
-return statement.
+前面我们刚刚确保了 `void` 函数不能返回值。
+那现在又该如何保证：非 `void` 函数一定*会*返回一个值？
 
-Down at the bottom of `function_declaration()` in `decl.c`, I now have:
+为了做到这一点，
+我们必须保证函数中的最后一条语句就是 `return` 语句。
+
+在 `decl.c` 中 `function_declaration()` 的底部，
+我现在加上了下面这段逻辑：
 
 ```c
   struct ASTnode *tree, *finalstmt;
@@ -360,37 +391,37 @@ Down at the bottom of `function_declaration()` in `decl.c`, I now have:
   }
 ```
 
-The wrinkle is that, if the function has exactly one statement, there is
-no A_GLUE AST node and there is only a left child in the tree which is
-the compound statement.
+这里的麻烦在于：
+如果函数体里恰好只有一条语句，
+那么树中就不会有 `A_GLUE` 节点，
+而那棵树本身就是这条语句。
 
-At this point, we can:
+做到这一步之后，
+我们已经可以：
 
-  + declare a function, store its type, and record we are in that function
-  + make a function call (either as an expression or a statement) with a
-    single argument
-  + return from a non-void function (only), and force that the last statement
-    in a non-void function is a return statement
-  + check and widen the expression being returned so as to match the
-    function's type definition
+  + 声明函数，保存函数类型，并记录当前正在解析哪个函数
+  + 调用函数（无论作为表达式还是语句），并传入一个参数
+  + 从非 `void` 函数中返回值，并强制要求非 `void` 函数最后一条语句必须是 `return`
+  + 检查并扩宽返回表达式，使其匹配函数类型定义
 
-Our AST tree now has A_RETURN and A_FUNCCAL nodes to with the return statements
-and function calls. Let's now see how they generate the assembly output.
+此时我们的 AST 已经多了 `A_RETURN` 和 `A_FUNCCALL` 节点，
+分别用于表示返回语句和函数调用。
+下面再看看它们如何生成汇编。
 
-## Why a Single Argument?
+## 为什么只支持一个参数？
 
-You might, at this point, be asking: why do you want to have a single
-function argument, especially as that argument isn't available to the
-function?
+你这时可能会问：
+既然这个参数目前在函数体里根本还用不到，
+为什么非要先支持“单参数函数调用”？
 
-The answer is that I want to replace the `print x;` statement in our
-language with a real function call: `printint(x);`. To do this, we can
-compile a real C function `printint()` and link it with the output from
-our compiler.
+答案是：我想把语言中的 `print x;` 语句，
+替换成一个真正的函数调用：`printint(x);`。
+为此，我们可以先把一个真实的 C 函数 `printint()` 编译出来，
+再和编译器生成的汇编输出链接到一起。
 
-## The New AST Nodes
+## 新 AST 节点的代码生成
 
-There is not much new code in `genAST()` in `gen.c`:
+`gen.c` 中 `genAST()` 的新代码其实不多：
 
 ```c
     case A_RETURN:
@@ -400,18 +431,20 @@ There is not much new code in `genAST()` in `gen.c`:
       return (cgcall(leftreg, n->v.id));
 ```
 
-A_RETURN doesn't return a value as it's not an expression. A_FUNCCALL
-is an expression of course.
+`A_RETURN` 不是表达式，
+因此它不会再返回一个值。
+而 `A_FUNCCALL` 当然是表达式。
 
-## Changes in the x86-64 Output
+## x86-64 输出的变化
 
-All the new code generation work is in the platform-specific code
-generator, `cg.c`. Let's have a look at this.
+所有新增的代码生成工作，
+基本都集中在平台专用代码生成器 `cg.c` 里。
+下面逐项来看。
 
-### New Types
+### 新类型
 
-Firstly, we now have `char`, `int` and `long`, and the x86-64 requires
-us to use the right register names for each type:
+首先，我们现在有 `char`、`int` 和 `long` 三种类型，
+而 x86-64 要求我们在不同类型下使用不同的寄存器名字：
 
 ```c
 // List of available registers and their names.
@@ -421,10 +454,11 @@ static char *breglist[4] = { "%r8b", "%r9b", "%r10b", "%r11b" };
 static char *dreglist[4] = { "%r8d", "%r9d", "%r10d", "%r11d" }
 ```
 
-### Defining, Loading and Storing Variables
+### 定义、加载和保存变量
 
-Variables now have three possible type. The code we generate needs to
-reflect this. Here are the changed functions:
+变量现在有三种可能的类型。
+因此生成出来的代码也必须反映这一点。
+下面是修改后的函数：
 
 ```c
 // Generate a global symbol
@@ -482,12 +516,12 @@ int cgstorglob(int r, int id) {
 }
 ```
 
-### Function Calls
+### 函数调用
 
-To call a function with one argument, we need to copy the register
-with the argument value into `%rdi`. On return, we need to copy
-the returned value from `%rax` into the register that will have this
-new value:
+要调用一个带单参数的函数，
+我们必须把保存参数值的寄存器内容复制到 `%rdi` 中。
+函数返回时，
+还要把 `%rax` 里的返回值复制到新的目标寄存器里：
 
 ```c
 // Call a function with one argument from the given register
@@ -503,13 +537,14 @@ int cgcall(int r, int id) {
 }
 ```
 
-### Function Returns
+### 函数返回
 
-To return from a function from any point in the function's execution, we
-need to jump to a label right at the bottom of the function. I've added
-code in `function_declaration()` to make a label and store it in the
-symbol table. As the return value leaves in the `%rax` register, we
-need to copy into this register before we jump to the end label:
+为了能够从函数执行过程中的任意位置返回，
+我们需要跳转到函数底部的某个统一标签。
+我在 `function_declaration()` 里加入了生成该标签并把它存进符号表的逻辑。
+而由于返回值必须通过 `%rax` 离开函数，
+因此在跳到结束标签之前，
+我们先把结果复制到 `%rax`：
 
 ```c
 // Generate code to return a value from a function
@@ -532,10 +567,11 @@ void cgreturn(int reg, int id) {
 }
 ```
 
-### Changes to the Function Preamble and Postamble
+### 函数前导与后导的变化
 
-There are no changes to the preamble, but previously we were setting
-`%rax` to zero on the return. We have to remove this bit of code:
+前导代码没有变化，
+但之前我们在返回前会把 `%rax` 设置成 0。
+现在这段代码必须删掉：
 
 ```c
 // Print out a function postamble
@@ -545,16 +581,17 @@ void cgfuncpostamble(int id) {
 }
 ```
 
-### Changes to the Initial Preamble
+### 初始前导代码的变化
 
-Up to now, I've been manually inserting an assembly version of
-`printint()` at the beginning of our assembly output. We no longer
-need this, as we can compile a real C function `printint()` and link it with
-the output from our compiler.
+到目前为止，
+我一直在汇编输出开头手工插入一个汇编版本的 `printint()`。
+现在不需要了，
+因为我们可以把一个真正的 C 版 `printint()` 编译出来，
+再与编译器输出链接。
 
-## Testing the Changes
+## 测试这些改动
 
-There is a new test program, `tests/input14`:
+现在有了一个新的测试程序 `tests/input14`：
 
 ```c
 int fred() {
@@ -571,10 +608,14 @@ void main() {
 }
 ```
 
-We firstly print 10, then call `fred()` which returns 20 and print this out.
-Finally, we call `fred()` again, add its return value to 10 and print out 30.
-This demonstrates function calls with a single value, and function returns.
-Here is the test results:
+它会先打印 10，
+然后调用 `fred()`，后者返回 20，于是我们再把 20 打印出来。
+最后，再调用一次 `fred()`，
+把返回值加上 10，再打印 30。
+这就同时展示了：
+单参数函数调用、函数返回值，
+以及函数调用作为表达式参与运算。
+下面是测试结果：
 
 ```
 cc -o comp1 -g cg.c decl.c expr.c gen.c main.c misc.c scan.c
@@ -587,7 +628,7 @@ cc -o out out.s lib/printint.c
 30
 ```
 
-Note that we link our assembly output with `lib/printint.c`:
+注意，我们把汇编输出和 `lib/printint.c` 一起链接了：
 
 ```c
 #include <stdio.h>
@@ -596,9 +637,9 @@ void printint(long x) {
 }
 ```
 
-## So Nearly C Now
+## 现在几乎已经像 C 了
 
-With this change, we can do this:
+做完这个改动后，我们已经可以这样干：
 
 ```
 $ cat lib/printint.c tests/input14 > input14.c
@@ -609,14 +650,18 @@ $ ./out
 30
 ```
 
-In other words, our language is enough of a subset of C that we can
-compile it with other C functions to get an executable. Excellent!
+换句话说，
+我们的语言已经足够接近 C 的一个子集，
+以至于可以和其他 C 函数拼在一起，交给普通 C 编译器来生成可执行程序。
+这非常不错。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-We've just added a simple version of function calls, function returns
-plus a new data type. As I expected, it wasn't trivial but I think the
-changes are mostly sensible.
+我们刚刚加入了一个简单版本的函数调用、函数返回，
+以及一种新的数据类型。
+正如我预料的那样，
+这并不轻松，但整体改动我觉得还是比较合理的。
 
-In the next part of our compiler writing journey, we will port our
-compiler to a new hardware platform, the ARM CPU on a Raspberry Pi. [Next step](../14_ARM_Platform/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会把编译器移植到新的硬件平台上：
+ARM CPU，也就是 Raspberry Pi 上使用的那种。 [下一步](../14_ARM_Platform/Readme.md)
