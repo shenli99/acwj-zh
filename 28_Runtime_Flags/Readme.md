@@ -1,38 +1,48 @@
-# Part 28: Adding More Run-time Flags
+# 第 28 部分：加入更多运行时参数
 
-This part of our compiler writing journey really doesn't have anything to
-do with scanning, parsing, semantic analysis or code generation. In this
-part, I add the `-c`, `-S` and `-o` run-time flags to the compiler so
-that it behaves more like a traditional Unix C compiler.
+这一部分的编译器编写之旅，
+其实和扫描、解析、语义分析或代码生成都没什么直接关系。
+这一部分里，
+我给编译器加上了 `-c`、`-S` 和 `-o` 这几个运行时参数，
+让它表现得更像传统的 Unix C 编译器。
 
-So, if that's not interesting, feel free to skip to the next part of the
-journey.
+所以，
+如果你对这类内容不感兴趣，
+完全可以直接跳到下一部分。
 
-## Compilation Steps
+## 编译阶段
 
-Up to now, our compiler has only been outputting assembly files. But there
-are more steps to convert a source code file in a high-level language to
-an executable file:
+到目前为止，
+我们的编译器一直只输出汇编文件。
+但把一个高级语言源文件变成可执行文件，
+中间其实还要经过更多步骤：
 
- + Scan and parse the source code file to generate assembly output
- + Assemble the assembly output to an [object file](https://en.wikipedia.org/wiki/Object_file)
- + [Link](https://en.wikipedia.org/wiki/Linker_(computing)) one or more object files to produce the executable file
+ + 扫描并解析源代码，生成汇编输出
+ + 把汇编代码组装成[目标文件（object file）](https://en.wikipedia.org/wiki/Object_file)
+ + 将一个或多个目标文件进行[链接（link）](https://en.wikipedia.org/wiki/Linker_(computing))，生成可执行文件
 
-We've been doing the last two steps manually or with our Makefile, but I'm
-going to modify the compiler to call an external assembler and linker to
-perform the last two steps.
+前两步后面的“汇编”和“链接”，
+我们一直是手工做，
+或者交给 Makefile 处理。
+而现在，
+我准备修改编译器，
+让它直接调用外部汇编器和链接器来完成后两步。
 
-To do this, I'm going to rearrange some of the code in `main.c` and also
-write more functions in `main.c` to do the assembling and linking. Most 
-of this code is typical string and file handling code done in C, so I'll
-go through the code but it may only be interesting if you've never seen
-this sort of code.
+为此，
+我会重新整理 `main.c` 中的一些代码，
+并在 `main.c` 里再写几个函数来负责汇编与链接。
+这部分大多数代码，
+本质上都是很典型的 C 语言字符串处理和文件处理逻辑，
+所以我会把代码走一遍；
+不过如果你以前已经很熟这种代码，
+它未必特别有趣。
 
-## Parsing the Command-Line Flags
+## 解析命令行参数
 
-I've renamed the compiler to be `cwj` to reflect the name of the project.
-When you run it with no command-line arguments, it now gives this usage
-message:
+我把编译器重命名成了 `cwj`，
+对应这个项目的名字。
+现在如果你不给它任何命令行参数，
+它会打印出下面这段用法说明：
 
 ```
 $ ./cwj 
@@ -44,12 +54,14 @@ Usage: ./cwj [-vcST] [-o outfile] file [file ...]
        -o outfile, produce the outfile executable file
 ```
 
-We now allow multiple source code files as inputs. We have four boolean
-flags, `-v`, `-c`, `-S` and `-T`, and we can now name the output executable
-file.
+现在我们允许输入多个源文件。
+同时有四个布尔开关：
+`-v`、`-c`、`-S` 和 `-T`，
+并且也可以指定最终输出的可执行文件名。
 
-The `argv[]` parsing code in `main()` is now changed to deal with this, and
-there are several more option variables to hold the results.
+`main()` 里解析 `argv[]` 的代码
+因此也得随之调整，
+并且新增了若干选项变量来保存结果。
 
 ```c
   // Initialise our variables
@@ -85,15 +97,22 @@ there are several more option variables to hold the results.
   }
 ```
 
-Note that some options are mutually exclusive, e.g. if we only want assembly
-output with `-S`, then we don't want to link or create object files.
+注意，
+其中有些选项是互斥的。
+比如如果用了 `-S`，
+我们只想要汇编输出，
+那自然就不应该再去链接，
+也不该再生成目标文件。
 
-## Performing the Compilation Stages
+## 执行编译阶段
 
-With the command-line flags parsed, we can now run the compilation stages.
-We can compile and assemble each input file easily, but there may be a
-number of object files that we need to link together at the end. So we have
-some local variables in `main()` to store the object file names:
+把命令行参数解析完后，
+我们就可以开始执行编译各阶段了。
+对每个输入文件来说，
+编译和汇编都很直接；
+但最后链接时，
+可能会有若干个目标文件需要一起处理。
+因此我们在 `main()` 里准备了一些局部变量来存这些目标文件名：
 
 ```c
 #define MAXOBJ 100
@@ -101,7 +120,8 @@ some local variables in `main()` to store the object file names:
   int objcnt = 0;               // Position to insert next name
 ```
 
-We first process all the input source files in turn:
+首先，
+我们会依次处理所有输入源文件：
 
 ```c
   // Work on each input file in turn
@@ -124,14 +144,16 @@ We first process all the input source files in turn:
   } 
 ```
 
-`do_compile()` has the code that used to be in `main()` to
-open the file, parse it ourselves and generate the assembly file.
-But we can't open up the hard-coded filename
-`out.s` like we used to; we now need to convert `filename.c` to `filename.s`.
+`do_compile()` 里装着的，
+就是原先 `main()` 中那段
+“打开文件、自己解析并生成汇编文件”的逻辑。
+不过我们现在不能再像以前那样，
+把输出文件名硬编码成 `out.s` 了；
+而是得把 `filename.c` 转成 `filename.s`。
 
-## Altering the Input Filename
+## 修改输入文件名
 
-We have a helper function to alter filenames.
+为此我们写了一个小的文件名辅助函数。
 
 ```c
 // Given a string with a '.' and at least a 1-character suffix
@@ -158,12 +180,14 @@ char *alter_suffix(char *str, char suffix) {
 }
 ```
 
-Only the `strdup()`, `strrchr()` and the last two lines do any real work;
-the rest is error checking.
+真正做事的核心其实只有 `strdup()`、`strrchr()`，
+以及最后那两行；
+其余大多只是错误检查。
 
-## Doing the Compilation
+## 执行编译
 
-Here is the code that we used to have, now repackaged into a new function.
+下面就是我们原先那段代码，
+现在被重新包装成了一个新函数：
 
 ```c
 // Given an input filename, compile that file
@@ -200,13 +224,15 @@ static char *do_compile(char *filename) {
 }
 ```
 
-There's very little new code here, just the call to `alter_suffix()` to
-get the correct output file's name.
+这里几乎没有新增太多代码，
+主要就是调用 `alter_suffix()` 来得到正确的输出文件名。
 
-There is one important change: the assembly output file is now a global
-variable called `Outfilename`. This allows the `fatal()` function and
-friends in `misc.c` to remove assembly files if we never fully generated them,
-e.g.
+不过有一个重要变化：
+汇编输出文件名现在放在一个全局变量 `Outfilename` 中。
+这样一来，
+`misc.c` 中的 `fatal()` 及其相关函数
+就能在“汇编文件尚未完整生成”的情况下把残留文件删掉。
+例如：
 
 ```c
 // Print out fatal messages
@@ -218,11 +244,13 @@ void fatal(char *s) {
 }
 ```
 
-## Assembling the Above Output
+## 组装上面的输出
 
-Now that we have assembly output files, we can now call an external
-assembler to do this. This is defined as ASCMD in `defs.h`. Here's
-the function to do this:
+既然现在我们已经能生成汇编输出文件了，
+下一步当然就可以调用外部汇编器。
+在 `defs.h` 中，
+这个命令被定义为 `ASCMD`。
+下面是负责汇编的函数：
 
 ```c
 #define ASCMD "as -o "
@@ -246,9 +274,11 @@ char *do_assemble(char *filename) {
 }
 ```
 
-I'm using `snprintf()` to build the assembly command which we will run.
-If the user used the `-v` command-line flag, this command will be shown to
-them. Then we use `system()` to execute this Linux command. Example:
+这里我用 `snprintf()` 来拼出要执行的汇编命令。
+如果用户开启了 `-v` 命令行参数，
+这个命令也会被打印出来。
+随后再用 `system()` 去执行这条 Linux 命令。
+例如：
 
 ```
 $ ./cwj -v -c tests/input54.c 
@@ -256,21 +286,25 @@ compiling tests/input54.c
 as -o  tests/input54.o tests/input54.s
 ```
 
-## Linking the Object Files
+## 链接目标文件
 
-Down in `main()` we build up a list of object files that `do_assemble()`
-returns to us:
+在 `main()` 里，
+我们已经把 `do_assemble()` 返回的目标文件名都攒进了一个列表：
 
 ```c
       objlist[objcnt++] = objfile;      // Add the object file's name
       objlist[objcnt] = NULL;           // to the list of object files
 ```
 
-So, when we need to link them all together, we need to pass this list to
-the `do_link()` function. The code is similar to `do_assemble()` in that
-it uses `snprintf()` and `system()`. The difference is that we must
-track where we are up to in our command buffer, and how much room is left
-to do more `snprintf()`ing.
+因此等到真正要把它们全部链接起来时，
+就需要把这个列表传给 `do_link()`。
+它的代码和 `do_assemble()` 很像，
+同样会用到 `snprintf()` 和 `system()`。
+区别在于，
+这里我们必须跟踪：
+命令缓冲区当前写到了哪里，
+以及还剩多少可用空间，
+好继续追加更多 `snprintf()` 的内容。
 
 ```c
 #define LDCMD "cc -o "
@@ -298,41 +332,53 @@ void do_link(char *outfilename, char *objlist[]) {
 }
 ```
 
-One annoyance is that I'm still calling the external C compiler `cc` to do
-the linking. We really should be able to break this dependency on another
-compiler.
+这里有个烦人的地方：
+我现在仍然是在调用外部 C 编译器 `cc` 来帮我们做链接。
+理论上，
+我们其实应该能摆脱对“另一个编译器”的这层依赖。
 
-A long time ago, it was possible to link a set of object files manually
-by doing, e.g.
+很久以前，
+你是可以手工把几个目标文件直接链接起来的，
+例如：
 
 ```
   $ ln -o out /lib/crt0.o file1.o file.o /usr/lib/libc.a
 ```
 
-I assume that it should be possible to do a similar command on current
-Linux, but so far my Google-fu isn't enough to work this out. If you read
-this and know the answer, let me know!
+我猜在现在的 Linux 上，
+应该也还是能找到类似做法；
+但目前为止，
+我的 Google-fu 还不够强，
+还没完全搞清楚该怎么写。
+如果你读到这里并且知道答案，
+欢迎告诉我！
 
-## Losing `printint()` and `printchar()`
+## 告别 `printint()` 和 `printchar()`
 
-Now that we can call `printf()` directly in the programs that we can compile,
-we no longer need our hand-written `printint()` and `printchar()` functions.
-I've removed `lib/printint.c`, and I've updated all of the tests in the
-`tests/` directory to use `printf()`.
+既然现在我们已经能在自己编译出来的程序里直接调用 `printf()`，
+那手写的 `printint()` 和 `printchar()` 就不再需要了。
+我已经删掉了 `lib/printint.c`，
+并把 `tests/` 目录下的所有测试都改成使用 `printf()`。
 
-I've also updated the `tests/mktests` and `tests/runtests` scripts so that
-they use the new compiler command-line arguments, and ditto the top-level
-`Makefile`. So a `make test` still runs our regression tests OK.
+我也顺手更新了 `tests/mktests` 与 `tests/runtests` 脚本，
+以及顶层 `Makefile`，
+让它们都配合新的编译器命令行参数工作。
+因此现在执行 `make test`，
+回归测试依然能够正常跑通。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-That's about it for this part of our journey. Our compiler now feels like
-the traditional Unix compilers that I'm used to.
+这一部分差不多就是这些内容。
+现在我们的编译器，
+已经更像我熟悉的那类传统 Unix 编译器了。
 
-I did promise to add in support for an external pre-processor in this
-step, but I decided against it. The main reason is that I would need to
-parse the filenames and line numbers that the pre-processor embeds in its
-output, e.g.
+我之前确实说过，
+这一部分还想加入对外部预处理器（external pre-processor）的支持；
+但最后我决定先不做。
+主要原因是：
+如果要支持它，
+我还得额外去解析预处理器嵌入在输出中的文件名和行号信息，
+例如：
 
 ```c
 # 1 "tests/input54.c"
@@ -354,8 +400,7 @@ int main()
 }
 ```
 
-
-In the next part of our compiler writing journey, we will
-look at adding support for structs to our compiler. I think we
-might have to do another design step first before we get to
-implementing the changes. [Next step](../29_Refactoring/Readme.md)
+在编译器编写之旅的下一部分中，
+我们会开始考虑怎样把结构体（struct）支持加进编译器。
+在真正改代码之前，
+我想大概率还得再先做一次设计。 [下一步](../29_Refactoring/Readme.md)

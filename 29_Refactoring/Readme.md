@@ -1,46 +1,65 @@
-# Part 29: A Bit of Refactoring
+# 第 29 部分：一点重构
 
-I started thinking about the design side of implementing structs, unions
-and enums in our compiler, and then I had a good idea on how to improve
-the symbol table, and that led me to doing a bit of refactoring of the
-compiler's code. So in this part of the journey there is no new functionality,
-but I feel a bit happier about some of the code in the compiler.
+我开始思考在编译器里实现结构体（struct）、
+联合体（union）和枚举（enum）的设计时，
+突然想到一个改进符号表的好主意，
+于是这又顺手引出了对编译器代码的一次小型重构。
+所以这一部分并没有新增功能，
+但我对编译器里某些代码的状态确实更满意了一些。
 
-If you are more interested in my design ideas for structs, unions
-and enums, feel free to skip to the next part.
+如果你更关心的是我对 struct、union 和 enum 的设计想法，
+那完全可以直接跳去下一部分。
 
-## Refactoring the Symbol Table
+## 重构符号表
 
-When I started writing our compiler, I had just finished reading through
-the [SubC](http://www.t3x.org/subc/) compiler's code and adding my own
-comments. Thus, I borrowed many of my initial ideas from this code base.
-One of them was to have an array of elements for the symbol table, with
-global symbols at one end and local symbols at the other.
+当初开始写这个编译器时，
+我刚刚读完
+[SubC](http://www.t3x.org/subc/)
+编译器的代码，
+并且给它加了不少我自己的注释。
+因此，
+我最初的很多思路都是从那套代码里借来的。
+其中之一就是：
+用一个数组来充当符号表，
+把全局符号放在一端，
+把局部符号放在另一端。
 
-We've seen, for function prototypes and parameters, that we have to copy
-a function's prototype from the global end over to the local end so that
-the function has local parameter variables. And we have to worry if
-one end of the symbol table crashes into the other end.
+但我们已经看到，
+在处理函数原型和函数参数时，
+我们必须把函数原型从符号表的全局端“复制”到局部端，
+这样函数才能得到本地参数变量。
+同时我们还得时刻担心：
+符号表一端会不会撞上另一端。
 
-So, at some point, we should convert the symbol table into a number of
-singly-linked lists: at least one for the global symbols and one for the
-local symbols. When we get to implementing enums, I might have a third one
-for the enum values.
+因此，
+在某个时刻，
+我们应该把符号表改造成若干条单向链表（singly-linked list）：
+至少需要一条全局符号链表，
+以及一条局部符号链表。
+等到以后实现枚举时，
+我甚至可能还要再加第三条，
+专门存放枚举值。
 
-Now, I haven't done this refactoring in this part of the journey as the
-changes look to be substantial, so I'll wait until I really need to do it.
-But one more change I will make is this. Each symbol node will have a `next`
-pointer to form the singly-linked list, but also a `param` pointer. This
-will allow functions to have a separate singly-linked list for their
-parameters which we can skip past when searching for global symbols.
-Then, when we need to "copy" a function's prototype to be its list of
-parameters, we can simply copy the pointer to the prototype list of parameters.
-Anyway, this change is for the future.
+不过，
+这一部分里我还没有真正去做这次重构，
+因为它看起来改动会很大。
+我打算等到“确实非做不可”的时候再动手。
+但有一个额外变化我已经决定先做：
+每个符号节点将来除了要有一个 `next` 指针，
+用于串起单向链表之外，
+还应该有一个 `param` 指针。
+这样一来，
+函数就可以有一条专门属于自己的参数链表，
+我们在搜索全局符号时也就能直接跳过它。
+而等我们需要把函数原型“复制”为函数参数列表时，
+其实只需要复制这根参数链表指针就够了。
+总之，
+这属于将来的事情。
 
-## Types, Revisited
+## 类型，再看一遍
 
-Another thing that I borrowed from SubC is the enumeration of types
-(in `defs.h`):
+我从 SubC 那里借来的另一个设计，
+是类型枚举方式（在 `defs.h` 中）：
 
 ```c
 // Primitive types
@@ -50,11 +69,14 @@ enum {
 };
 ```
 
-SubC only allows one level of indirection, thus the list of types above.
-I had the idea, why not encode the level of indirection in the primitive type
-value? So I've changed our code so that the bottom four bits in a `type`
-integer is the level of indirection, and the higher bits encode the
-actual type:
+SubC 只允许一级间接寻址，
+所以它才会有上面这份类型列表。
+后来我想到：
+为什么不把“间接层级”直接编码进基本类型值本身呢？
+于是我把代码改成：
+在一个 `type` 整数值里，
+低四位表示间接层级，
+高位则表示真正的基础类型：
 
 ```c
 // Primitive types. The bottom 4 bits is an integer
@@ -65,11 +87,15 @@ enum {
 };
 ```
 
-I've been able to completely refactor out all of the old `P_XXXPTR`
-references in the old code. Let's see what changes there have been.
+这样一来，
+旧代码里所有原先的 `P_XXXPTR` 引用，
+我现在都能完全重构掉了。
+我们来看看具体发生了哪些变化。
 
-Firstly, we have to deal with scalar and pointer types in `types.c`. The code
-now is actually smaller than before:
+首先，
+在 `types.c` 里，
+我们得能处理“标量类型”和“指针类型”。
+现在的代码其实比以前更短了：
 
 ```c
 // Return true if a type is an int type
@@ -100,18 +126,20 @@ int value_at(int type) {
 }
 ```
 
-And `modify_type()` hasn't changed whatsoever.
+而 `modify_type()` 则完全没有变化。
 
-In `expr.c`, when dealing with literal strings, I was using `P_CHARPTR`
-but now I can write:
+在 `expr.c` 里，
+处理字符串字面量时，
+我原先用的是 `P_CHARPTR`；
+现在就可以写成：
 
 ```c
    n = mkastleaf(A_STRLIT, pointer_to(P_CHAR), id);
 ```
 
-One other substantial area where the `P_XXXPTR` values were used is the code
-in the hardware-dependent code in `cg.c`. We start by rewriting `cgprimsize()`
-to use `ptrtype()`:
+另一个大量用到 `P_XXXPTR` 的地方，
+是在平台相关代码 `cg.c` 中。
+首先我们把 `cgprimsize()` 重写成基于 `ptrtype()`：
 
 ```c
 // Given a P_XXX type value, return the
@@ -128,10 +156,13 @@ int cgprimsize(int type) {
 }
 ```
 
-With this code, the other functions in `cg.c` can
-now call `cgprimsize()`, `ptrtype()`,
-`inttype()`, `pointer_to()` and `value_at()` as required, instead of
-referring to specific types. Here's an example from `cg.c`:
+有了这个函数之后，
+`cg.c` 里的其他代码
+就可以按需调用
+`cgprimsize()`、`ptrtype()`、
+`inttype()`、`pointer_to()` 和 `value_at()`，
+而不再去硬编码具体类型。
+下面是 `cg.c` 里的一个例子：
 
 ```c
 // Dereference a pointer to get the value it
@@ -162,12 +193,14 @@ int cgderef(int r, int type) {
 }
 ```
 
-Have a quick read through `cg.c` and look for the calls to `cgprimsize()`.
+你可以快速翻一遍 `cg.c`，
+看看所有调用 `cgprimsize()` 的地方。
 
-### An Example Use of Double Pointers
+### 一个双重指针的例子
 
-Now that we have up to sixteen levels of indirection, I wrote a test program
-to confirm that they work, `tests/input55.c`:
+既然现在我们已经支持最多十六层间接寻址，
+我就顺手写了一个测试程序来确认它确实可用，
+文件是 `tests/input55.c`：
 
 ```c
 int printf(char *fmt);
@@ -185,14 +218,18 @@ int main(int argc, char **argv) {
 }
 ```
 
-Note that `argv++` doesn't yet work, and `argv[i]` also doesn't yet work.
-But we can work around these missing features as shown above.
+要注意的是，
+`argv++` 目前还不能用，
+`argv[i]` 也还不能用。
+不过像上面那样稍微绕一下，
+还是可以先把功能跑起来。
 
-## Changes to the Symbol Table Structure
+## 符号表结构的改动
 
-While I didn't refactor the symbol table into lists, I did tweak the
-symbol table structure itself, now that I realised that I can use
-unions and not have to give the union a variable name:
+虽然这一部分里我还没有把符号表重构成链表，
+但在意识到可以使用 union，
+并且甚至不需要再给 union 单独起名字之后，
+我还是顺手调整了一下符号表结构本身：
 
 ```c
 // Symbol table structure
@@ -213,16 +250,20 @@ struct symtable {
 };
 ```
 
-I used to have a `#define` for `nelems`, but the above is the same result and
-prevents the global definition of `nelems` from polluting the namespace. I
-also realised that `size` and `endlabel` could occupy the same position in the
-structure, and added that union. There are a few cosmetic changes to the
-parameters to `addglob()`, but not much else.
+我以前曾经用 `#define` 来定义 `nelems`，
+但上面这种写法效果是一样的，
+而且还能避免把一个全局的 `nelems` 定义污染到命名空间里。
+同时我也意识到，
+`size` 和 `endlabel`
+在结构里完全可以共用同一个位置，
+于是就给它们也加了一个 union。
+`addglob()` 的参数因此有少量外观上的变动，
+但除此之外并没有太多别的变化。
 
-## Changes to the AST Structure
+## AST 结构的改动
 
-Similarly, I've modified the AST node structure so that the union doesn't
-have a variable name:
+类似地，
+我也把 AST 节点结构改成了“不再给 union 起变量名”的形式：
 
 ```c
 // Abstract Syntax Tree structure
@@ -241,22 +282,24 @@ struct ASTnode {
 };
 ```
 
-and this means that I can, e.g., write the second line instead of the first
-one:
+这就意味着，
+例如下面这两行里，
+我现在可以写第二种形式，而不用再写第一种：
 
 ```c
     return (cgloadglob(n->left->v.id, n->op));    // Old code
     return (cgloadglob(n->left->id,   n->op));    // New code
 ```
-## Conclusion and What's Next
 
-That's about it for this part of our compiler writing journey. I might
-have done a few more small code changes here and there, but I can't
-think of anything else that was major.
+## 总结与下一步
 
-I will get to changing the symbol table to be a linked list; this will
-probably happen in the part where we implement enumerated values.
+这一部分差不多就是这些内容。
+我可能还顺手改了若干别的小地方，
+但一时想不起还有什么值得单独拿出来讲的大改动。
 
-In the next part of our compiler writing journey, I'll get back to
-what I wanted to cover in this part: the design side of implementing
-structs, unions and enums in our compiler. [Next step](../30_Design_Composites/Readme.md)
+把符号表改成链表这件事我迟早会做；
+大概率会发生在我们实现枚举值的时候。
+
+在编译器编写之旅的下一部分中，
+我终于会回到自己原本这一部分想讲的话题：
+也就是在编译器里实现 struct、union 和 enum 时的设计思路。 [下一步](../30_Design_Composites/Readme.md)
