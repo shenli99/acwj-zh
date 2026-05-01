@@ -1,27 +1,28 @@
-# Part 15: Pointers, part 1
+# 第 15 部分：指针，第 1 部分
 
-In this part of our compiler writing journey, I want
-to begin the work to add pointers to our language.
-In particular, I want to add this:
+在编译器编写之旅的这一部分中，
+我想开始把指针加入语言。
+具体来说，我想先支持下面这些能力：
 
- + Declaration of pointer variables
- + Assignment of an address to a pointer
- + Dereferencing a pointer to get the value it points at
+ + 声明指针变量
+ + 把一个地址赋给指针
+ + 解引用一个指针，取出它所指向的值
 
-Given that this is a work in progress, I'm sure I will
-implement a simplistic version that works for now, but
-later on I will have to change or extend it for  to be
-more general.
+考虑到这仍然是一个进行中的实现，
+我很确定自己现在只能先做出一个“眼下够用的简化版本”，
+但以后还必须继续修改和扩展，
+让它变得更通用。
 
-## New Keywords and Tokens
+## 新关键字与 token
 
-There are no new keywords this time, only two new tokens:
+这次没有新增关键字，
+只新增了两个 token：
 
- + '&', T_AMPER, and
- + '&&', T_LOGAND
+ + `'&'`，即 `T_AMPER`
+ + `'&&'`，即 `T_LOGAND`
 
-We don't need T_LOGAND yet, but I might as well add this
-code to `scan()` now:
+虽然我们现在还用不到 `T_LOGAND`，
+不过我索性先把这段代码加进 `scan()`：
 
 ```c
     case '&':
@@ -34,10 +35,10 @@ code to `scan()` now:
       break;
 ```
 
-## New Code for Types
+## 类型相关的新代码
 
-I've added some new primitive types to the language
-(in `defs.h`):
+我给语言加入了一些新的基础类型
+（定义于 `defs.h`）：
 
 ```c
 // Primitive types
@@ -47,16 +48,16 @@ enum {
 };
 ```
 
-We will have new unary prefix operators:
+我们将引入两个新的单目**前缀**运算符：
 
- + '&' to get the address of an identifier, and
- + '*' to dereference a pointer and get the value
-   it points at.
+ + `'&'`：获取一个标识符的地址
+ + `'*'`：解引用一个指针，取得它指向的值
 
-The type of expression that each operator produces
-is different to the type that each works on. We need
-a couple of functions in `types.c` to make the type
-change:
+这两个运算符“作用于什么类型”，
+以及“会产生什么类型的表达式”，
+这两件事并不相同。
+因此在 `types.c` 中，
+我们需要两个函数来做这种类型转换：
 
 ```c
 // Given a primitive type, return
@@ -90,22 +91,23 @@ int value_at(int type) {
 }
 ```
 
-Now, where are we going to use these functions?
+那么，这两个函数会在哪些地方用到呢？
 
-## Declaring Pointer Variables
+## 声明指针变量
 
-We want to be able to declare scalar variables
-and pointer variables, e.g.
+我们希望不仅能声明标量变量，
+也能声明指针变量，例如：
 
 ```c
   char  a; char *b;
   int   d; int  *e;
 ```
 
-We already have a function `parse_type()` in `decl.c`
-that converts the type keyword to a type. Let's extend
-it to scan the following token and change the type if
-the next token is a '*':
+我们已经在 `decl.c` 中有一个 `parse_type()`，
+能把类型关键字转换成相应类型。
+现在把它扩展一下：
+如果后面跟着的是 `'*'`，
+就进一步把它变成指针类型：
 
 ```c
 // Parse the current token and return
@@ -135,18 +137,18 @@ int parse_type(void) {
 }
 ```
 
-This will allow the programmer to try to do:
+这段代码甚至允许程序员尝试写出：
 
 ```c
    char *****fred;
 ```
-This will fail because `pointer_to()` can't convert
-a P_CHARPTR to a P_CHARPTRPTR (yet). But the code
-in `parse_type()` is ready to do it!
 
+目前它会失败，
+因为 `pointer_to()` 还不知道怎样把 `P_CHARPTR`
+变成 `P_CHARPTRPTR`。
+但 `parse_type()` 的整体结构已经为这种未来扩展做好准备了。
 
-The code in `var_declaration()` now quite
-happily parses pointer variable declarations:
+于是 `var_declaration()` 现在就能够很愉快地解析指针变量声明：
 
 ```c
 // Parse the declaration of a variable
@@ -161,12 +163,12 @@ void var_declaration(void) {
 }
 ```
 
-### Prefix Operators '*' and '&'
+### 前缀运算符 `*` 与 `&`
 
-With declarations out of the road, let's now look
-at parsing expressions where '*' and '&' are
-operators that come before an expression. The BNF
-grammar looks like this:
+声明说完之后，
+现在来看看表达式解析：
+也就是在表达式前面出现 `'*'` 和 `'&'` 这两个前缀运算符时该怎么办。
+对应的 BNF 语法如下：
 
 ```
  prefix_expression: primary
@@ -175,15 +177,16 @@ grammar looks like this:
      ;
 ```
 
-Technically this allows:
+从语法上说，
+这理论上允许写出：
 
 ```
    x= ***y;
    a= &&&b;
 ```
 
-To prevent impossible uses of the two operators,
-we add in some semantic checking. Here's the code:
+为了阻止这些明显不合理的用法，
+我们加上一些语义检查。代码如下：
 
 ```c
 // Parse a prefix expression and return 
@@ -225,15 +228,16 @@ struct ASTnode *prefix(void) {
 }
 ```
 
-We're still doing recursive descent, but we also put error
-checks in to prevent input mistakes. Right now, the limitations
-in `value_at()` will prevent more than one '*' operator in a row,
-but later on when we change `value_at()`, we won't have to come
-back and change `prefix()`.
+这里我们仍然是在做递归下降解析，
+但也加上了错误检查，
+用来阻止明显的输入错误。
+目前 `value_at()` 的限制会阻止出现多个连续 `'*'`，
+不过等以后我们修改 `value_at()` 时，
+就不需要再回来改 `prefix()` 了。
 
-Note that `prefix()` also calls `primary()` when it doesn't see
-a '*' or '&' operator. That allows us to change our existing code
-in `binexpr()`:
+注意，`prefix()` 在没有看到 `'*'` 或 `'&'` 时，
+最终还是会调用 `primary()`。
+这也就允许我们修改 `binexpr()` 中已有的代码：
 
 ```c
 struct ASTnode *binexpr(int ptp) {
@@ -249,23 +253,24 @@ struct ASTnode *binexpr(int ptp) {
 }
 ```
 
-## New AST Node Types
+## 新的 AST 节点类型
 
-Up in `prefix()` I introduced two new AST node types
-(declared in `defs.h`):
+前面的 `prefix()` 中，
+我引入了两个新的 AST 节点类型
+（定义在 `defs.h` 中）：
 
+ + `A_DEREF`：对孩子节点中的指针做解引用
+ + `A_ADDR`：取得这个节点中标识符的地址
 
- + A_DEREF: Dereference the pointer in the child node
- + A_ADDR: Get the address of the identifier in this node
+注意，`A_ADDR` 不是一个父节点。
+对于表达式 `&fred`，
+`prefix()` 里的代码会直接把原本 “fred” 节点中的 `A_IDENT`
+改成 `A_ADDR`。
 
-Note that the A_ADDR node isn't a parent node. For the
-expression `&fred`, the code in `prefix()` replaces
-the A_IDENT in the "fred" node with the A_ADDR node type.
+## 生成新的汇编代码
 
-## Generating the New Assembly Code
-
-In our generic code generator, `gen.c`, there are only
-a few new lines to `genAST()`:
+在通用代码生成器 `gen.c` 中，
+对 `genAST()` 的改动只有很少几行：
 
 ```c
     case A_ADDR:
@@ -274,17 +279,17 @@ a few new lines to `genAST()`:
       return (cgderef(leftreg, n->left->type));
 ```
 
-The A_ADDR node generates the code to load the
-address of the `n->v.id` identifier into a register.
-The A_DEREF node take the pointer address in `lefreg`,
-and its associated type, and returns a register with
-the value at this address.
+`A_ADDR` 节点负责生成代码，
+把标识符 `n->v.id` 的地址装进一个寄存器。
+而 `A_DEREF` 节点则取出保存在 `leftreg` 中的指针地址，
+再结合它对应的类型，
+返回该地址上存储的值。
 
-### x86-64 Implementation
+### x86-64 实现
 
-I worked out the following assembly output by reviewing
-the assembly code generated by other compilers. It
-might not be correct!
+我通过研究其他编译器生成的汇编，
+整理出了下面这套输出。
+它未必完全正确！
 
 ```c
 // Generate code to load the address of a global
@@ -312,14 +317,15 @@ int cgderef(int r, int type) {
 }
 ```
 
-The `leaq` instruction loads the address of the named identifier.
-In the section function, the `(%r8)` syntax loads the value that
-register `%r8` points to.
+`leaq` 指令负责把某个命名标识符的地址加载进寄存器。
+而在第二个函数里，
+像 `(%r8)` 这样的语法，
+表示“加载 `%r8` 指向位置上的值”。
 
-## Testing the New Functinality
+## 测试新的功能
 
-Here's our new test file, `tests/input15.c` and the result when we
-compile it:
+下面是新的测试文件 `tests/input15.c`，
+以及编译运行后的结果：
 
 ```c
 int main() {
@@ -349,17 +355,17 @@ cc -o out out.s lib/printint.c
 12
 ```
 
-I decided to change our test files to end with the `.c`
-suffix, now that they are actually C programs. I also
-changed the `tests/mktests` script to generate the
-*correct* results by using a "real" compiler to
-compile our test files.
+我决定把测试文件的后缀统一改成 `.c`，
+因为它们现在确实已经是 C 程序了。
+我也顺手修改了 `tests/mktests` 脚本，
+让它通过“真正的”编译器来编译这些测试文件，
+从而生成*正确*结果。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-Well, we have the start of pointers implemented. They
-are not completely correct yet. For example, if I write
-this code:
+现在指针支持已经有了一个开头，
+但它还远远不算完整正确。
+例如，如果我写出下面这段代码：
 
 ```c
 int main() {
@@ -371,11 +377,14 @@ int main() {
 }
 ```
 
-it should print 20 because `&x + 1` should address
-one `int` past `x`, i.e. `y`. This is eight bytes
-away from `x`. However, our compiler simply adds
-one to the address of `x`, which is incorrect. I'll
-have to work out how to fix this.
+它本来应该打印 20，
+因为 `&x + 1` 应该表示“比 `x` 往后一个 `int` 的地址”，
+也就是变量 `y`。
+它相对于 `x` 应该偏移 8 个字节。
 
-In the next part of our compiler writing journey, we will
-try to fix this problem. [Next step](../16_Global_Vars/Readme.md)
+但现在我们的编译器只是单纯地把 `x` 的地址加 1，
+这是错误的。
+我还得继续研究，看看怎么修正这个问题。
+
+在编译器编写之旅的下一部分中，
+我们就来尝试修复它。 [下一步](../16_Global_Vars/Readme.md)

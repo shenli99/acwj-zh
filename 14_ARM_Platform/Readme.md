@@ -1,42 +1,50 @@
-# Part 14: Generating ARM Assembly Code
+# 第 14 部分：生成 ARM 汇编代码
 
-In this part of our compiler writing journey, I've ported the compiler
-over to the ARM CPU on the
-[Raspberry Pi 4](https://en.wikipedia.org/wiki/Raspberry_Pi).
+在编译器编写之旅的这一部分中，
+我已经把编译器移植到了
+[Raspberry Pi 4](https://en.wikipedia.org/wiki/Raspberry_Pi)
+所使用的 ARM CPU 上。
 
-I should preface this section by saying that, while I know MIPS assembly
-language quite well, I only knew a bit of x86-32 assembly language when I
-started this journey, and nothing about x86-64 nor ARM assembly language.
+这一节开始前我得先说明一下：
+我对 MIPS 汇编语言相当熟，
+但在开始这段旅程时，
+我只懂一点点 x86-32 汇编，
+对 x86-64 和 ARM 汇编几乎一无所知。
 
-What I've been doing along the way is compiling example C programs down
-to an assembler with various C compilers to see what sort of assembly
-language they produce. That's what I've done here  to write the ARM
-output for this compiler.
+这一路上我采取的办法是：
+写一些示例 C 程序，
+然后让不同的 C 编译器把它们编译成汇编，
+观察它们到底会生成什么样的汇编代码。
+这一次为了给我们的编译器写 ARM 输出，
+我也是这么做的。
 
-## The Major Differences
+## 主要差异
 
-Firstly, ARM is a RISC CPU and x86-64 is a CISC CPU. There are fewer
-addressing modes on the ARM when compared to the x86-64. There are also
-other interesting constraints that occur when generating ARM assembly code.
-So I will start with the major differences, and leave the main similarities
-to later.
+首先，ARM 是 RISC CPU，而 x86-64 是 CISC CPU。
+与 x86-64 相比，ARM 的寻址模式更少。
+此外，在生成 ARM 汇编代码时，
+还会遇到一些其他有意思的限制。
+因此我会先讲主要差异，
+把两者之间那些主要的相似点放到后面。
 
-### ARM Registers
+### ARM 寄存器
 
-ARM has heaps more registers than x86-64. That said, I'm sticking with four
-registers to allocate: `r4`,`r5`, `r6` and `r7`. We will see that `r0` and
-`r3` get used for other things below.
+ARM 的寄存器数量远多于 x86-64。
+即便如此，我仍然只打算分配四个寄存器来使用：
+`r4`、`r5`、`r6` 和 `r7`。
+后面会看到，`r0` 和 `r3` 会被拿去做别的事情。
 
-### Addressing Global Variables
+### 全局变量的寻址
 
-On x86-64, we only have to declare a global variable with a line like:
+在 x86-64 上，
+我们只需要用下面这样的语句来声明全局变量：
 
 ```
         .comm   i,4,4        # int variable
         .comm   j,1,1        # char variable
 ``` 
 
-and, later, we can load and store to these variables easily:
+之后再对这些变量进行加载和存储就很容易：
 
 ```
         movb    %r8b, j(%rip)    # Store to j
@@ -45,8 +53,8 @@ and, later, we can load and store to these variables easily:
         movzbq  j(%rip), %r8     # Load from j
 ```
 
-With ARM, we have to manually allocate space for all global variables
-in our program postamble:
+但在 ARM 上，
+我们必须在程序后导代码里手工为所有全局变量分配空间：
 
 ```
         .comm   i,4,4
@@ -57,8 +65,9 @@ in our program postamble:
         .word j
 ```
 
-To access these, we need to load a register with the address of each
-variable, and load a second register from that address:
+为了访问它们，
+我们需要先把变量地址加载进一个寄存器，
+再通过第二步从这个地址里取值：
 
 ```
         ldr     r3, .L2+0
@@ -67,7 +76,7 @@ variable, and load a second register from that address:
         ldr     r4, [r3]        # Load j
 ```
 
-Stores to variables are similar:
+对变量的存储也类似：
 
 ```
         mov     r4, #20
@@ -78,7 +87,8 @@ Stores to variables are similar:
         str     r4, [r3]        # j= 10
 ```
 
-There is now this code in `cgpostamble()` to generate the table of .words:
+因此现在 `cgpostamble()` 中多了下面这段逻辑，
+用来生成 `.word` 表：
 
 ```c
   // Print out the global variables
@@ -89,10 +99,12 @@ There is now this code in `cgpostamble()` to generate the table of .words:
   }
 ```
 
-This also means that we need to determine the offset from `.L2` for each
-global variable. Following the KISS principle, I manually calculate the
-offset each time I want to load `r3` with the address of a variable.
-Yes, I should calculate each offset once and store it somewhere; later!
+这也意味着：
+我们必须知道每个全局变量相对于 `.L2` 的偏移量。
+按照 KISS 原则，
+我现在每次想把变量地址加载到 `r3` 时，
+都现场手动计算一次偏移。
+对，我知道更合理的做法是只算一次然后缓存起来；以后再说！
 
 ```c
 // Determine the offset of a variable from the .L2
@@ -112,15 +124,19 @@ static void set_var_offset(int id) {
 }
 ```
 
-### Loading Int Literals
+### 加载整数字面量
 
-The size of an integer literal in a load instruction is limited to 11 bits
-and I think this is a signed value. Thus, we can't put large integer literals
-into a single instruction. That answer is to store the literal values in
-memory, like variables. So I keep a list of previously-used literal
-values. In the postamble, I output them following the `.L3` label. And, like
-variables, I walk this list to determine the offset of any literal from
-the `.L3` label:
+ARM 中加载指令里可直接放入的整数字面量大小有限，
+我理解它大概只有 11 位，而且可能还是带符号值。
+这就意味着，
+较大的整数字面量无法用一条指令直接装进去。
+
+解决办法是像变量一样，把这些字面量也存在内存里。
+因此我维护了一个“已经使用过的整数字面量”列表。
+在后导代码中，
+我会把它们输出到 `.L3` 标签之后。
+然后和变量一样，
+通过遍历这个列表来确定某个字面量相对于 `.L3` 的偏移：
 
 ```c
 // We have to store large integer literal values in memory.
@@ -155,10 +171,11 @@ static void set_int_offset(int val) {
 }
 ```
 
-### The Function Preamble
+### 函数前导代码
 
-I'm going to give you the function preamble, but I am not completely
-sure what each instruction does. Here it is for `int main(int x)`:
+下面我要给出函数前导代码，
+不过说实话，我并不完全确定每条指令到底在干什么。
+下面是 `int main(int x)` 的版本：
 
 ```
   .text
@@ -170,32 +187,35 @@ sure what each instruction does. Here it is for `int main(int x)`:
                 str   r0, [fp, #-8]     # Save the argument as a local var?
 ```
 
-and here's the function postamble to return a single value:
+而下面是用于返回单个值的函数后导代码：
 
 ```
                 sub   sp, fp, #4        # ???
                 pop   {fp, pc}          # Pop the frame and stack pointers
 ```
 
-### Comparisons Returning 0 or 1
+### 比较后返回 0 或 1
 
-With the x86-64 there's an instruction to set a register to 0 or 1
-based on the comparison being true, e.g. `sete`, but then we have to
-zero-fill the rest of the register with `movzbq`. With the ARM, we run
-two separate instructions which set a register to a value if the condition
-we want is true or false, e.g.
+在 x86-64 上，
+有像 `sete` 这样的指令，
+可以根据比较结果把寄存器设成 0 或 1，
+然后再通过 `movzbq` 把剩余高位清零。
+而在 ARM 上，
+我们会用两条独立指令：
+当条件为真时把寄存器设为某个值，
+当条件为假时再设为另一个值，例如：
 
 ```
                 moveq r4, #1            # Set r4 to 1 if values were equal
                 movne r4, #0            # Set r4 to 0 if values were not equal
 ```
 
-## A Comparison of Similar x86-64 and ARM Assembly Output
+## 对比相近的 x86-64 与 ARM 汇编输出
 
-I think that's all the major differences out of the road. So below
-is a comparison of the `cgXXX()` operation, any specific type for that
-operation, and an example x86-64 and ARM instruction sequence to
-perform it.
+我想这差不多就是主要差异了。
+下面列出 `cgXXX()` 操作、
+该操作相关的具体类型，
+以及对应的 x86-64 和 ARM 指令序列示例。
 
 | Operation(type) | x86-64 Version | ARM Version |
 |-----------------|----------------|-------------|
@@ -237,10 +257,10 @@ cgreturn(int) | movl %r8, %eax | mov r0, r4 |
 cgreturn(long) | movq %r8, %rax | mov r0, r4 |
 | | jmp L2 | b L2 |
 
-## Testing the ARM Code Generator
+## 测试 ARM 代码生成器
 
-If you copy the compiler from this part of the journey to
-a Raspberry Pi 3 or 4, you should be able to do:
+如果你把这一部分旅程中的编译器拷到 Raspberry Pi 3 或 4 上，
+就应该可以执行：
 
 ```
 $ make armtest
@@ -272,17 +292,21 @@ cc -o out out.s lib/printint.c
 30
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-It did take me a bit of head scratching to get the ARM version of
-the code generator `cg_arm.c` to correctly compile all of the test
-inputs. It was mostly straight-forward, I just wasn't familiar with
-the architecture and instruction set.
+为了让 ARM 版代码生成器 `cg_arm.c`
+正确编译所有测试输入，
+我确实花了不少时间挠头。
+但总体来说，它还是比较直接的，
+只是我自己对这套架构和指令集不熟。
 
-It should be relatively easy to port the compiler to a platform with
-3 or 4 registers, 2 or so data sizes and a stack (and stack frames).
-As we go forward, I'll try to keep both `cg.c` and `cg_arm.c`
-functionally in sync.
+如果一个平台只有 3 到 4 个寄存器、
+2 种左右数据宽度，
+并且有栈（以及栈帧），
+那么把编译器移植过去应该都不会太难。
+后面继续推进时，
+我会尽量保持 `cg.c` 和 `cg_arm.c`
+在功能上同步。
 
-In the next part of our compiler writing journey, we will add the `char`
-pointer to the language, as well as the '*' and '&' unary operators. [Next step](../15_Pointers_pt1/Readme.md)
+在编译器编写之旅的下一部分中，
+我们将把 `char` 指针，以及一元运算符 `*` 和 `&` 加入语言。 [下一步](../15_Pointers_pt1/Readme.md)
