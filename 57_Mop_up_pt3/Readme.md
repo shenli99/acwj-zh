@@ -1,17 +1,23 @@
-# Part 57: Mopping Up, part 3
+# 第 57 部分：收尾清扫，第 3 部分
 
-In this part of our compiler writing journey, I fix up a few more small
-issues with the compiler.
+在编译器编写之旅的这一部分里，
+我又修了编译器里几个零碎但必要的小问题。
 
-## No -D Flag
+## 没有 `-D` 标志
 
-Our compiler doesn't have a run-time `-D` flag to define a symbol to the
-pre-processor, and it would be somewhat complicated to add it in. But we
-use this in the `Makefile` to set the location of the directory where
-our header files are.
+我们的编译器目前还没有
+运行时的 `-D` 标志，
+也就是无法在命令行上
+给预处理器定义一个符号。
+要把这个能力加进来，
+多少会有点复杂。
+但偏偏我们在 `Makefile`
+里正用着这个特性，
+好把头文件目录的位置传进去。
 
-I've rewritten the `Makefile` to write this location into a new header
-file:
+所以我干脆把 `Makefile`
+改写成直接生成一个新的头文件，
+把这个目录位置写进去：
 
 ```
 # Define the location of the include directory
@@ -22,7 +28,8 @@ incdir.h:
         echo "#define INCDIR \"$(INCDIR)\"" > incdir.h
 ```
 
-and in `defs.h` we now have:
+然后在 `defs.h` 里，
+我们现在会这样包含它：
 
 ```c
 #include <stdlib.h>
@@ -32,12 +39,13 @@ and in `defs.h` we now have:
 #include "incdir.h"
 ```
 
-This ensures that the location of this directory is known to the source
-code.
+这样一来，
+源码里就能直接知道这个目录的位置了。
 
-## Loading Extern Variables
+## 加载 `extern` 变量
 
-I've added these three external variables in `include/stdio.h`:
+我在 `include/stdio.h`
+里新增了下面这三个外部变量：
 
 ```c
 extern FILE *stdin;
@@ -45,9 +53,12 @@ extern FILE *stdout;
 extern FILE *stderr;
 ```
 
-but when I tried to use them they were being treated as local variables!
-It turns out my logic to choose a global variable was wrong. In
-`genAST()` in `gen.c`, we now have:
+但当我尝试使用它们时，
+它们居然被当成了局部变量！
+后来发现，
+是我在选择“全局变量加载路径”时的逻辑写错了。
+现在在 `gen.c` 的 `genAST()` 中，
+相关代码变成了这样：
 
 ```c
     case A_IDENT:
@@ -62,23 +73,33 @@ It turns out my logic to choose a global variable was wrong. In
         }
 ```
 
-with the `C_EXTERN` alternative being added.
+这里新增的关键分支
+就是 `C_EXTERN`。
 
-## Problems with the Pratt Parser
+## Pratt 解析器的问题
 
-Way back in part 3 of this journey, I introduced the
-[Pratt parser](https://en.wikipedia.org/wiki/Pratt_parser)
-which has a table of precedence values associated with each token.
-We've been using it ever since as it works.
+很久以前，
+在这趟旅程的第 3 部分里，
+我引入了
+[Pratt parser](https://en.wikipedia.org/wiki/Pratt_parser)。
+它通过一张“token 对应优先级”的表来工作。
+从那以后我们就一直在用它，
+而且总体来说效果不错。
 
-However, I've introduced tokens that don't get parsed
-by the Pratt parser: prefix operators, postfix operators, casts,
-array element access etc. And along the way I broke the chain that
-ensures the Pratt parser knows the precedence of the previous operator
-token.
+但后来我又陆续引入了不少
+并不是直接由 Pratt parser 处理的 token：
+前缀运算符、
+后缀运算符、
+类型转换、
+数组下标访问等等。
+在这个过程中，
+我不小心把一条很关键的链路弄断了：
+Pratt parser
+不再总能正确知道“前一个运算符的优先级”。
 
-Here is the basic Pratt algorihm again, as shown by the code in
-`binexpr()` in `expr.c`:
+先来看一遍基础版 Pratt 算法，
+也就是 `expr.c` 中 `binexpr()`
+展示出来的样子：
 
 ```c
   // Get the tree on the left.
@@ -110,65 +131,92 @@ Here is the basic Pratt algorihm again, as shown by the code in
   return (left);
 ```
 
-We must ensure that `binexpr()` gets called with the precedence of
-the previous token. Now let's look at how this got broken.
+这里有个关键前提：
+`binexpr()`
+必须带着“前一个 token 的优先级”
+继续往下调用。
+现在来看它是怎么被弄坏的。
 
-Consider this expression that checks if three pointers are valid:
+考虑这样一个表达式，
+它用来检查三个指针是否都有效：
 
 ```c
   if (a == NULL || b == NULL || c == NULL)
 ```
 
-The `==` operator has higher precedence that the `||` operator, so the
-Pratt parser should treat this the same as:
+`==` 运算符的优先级
+高于 `||`，
+因此 Pratt parser
+应该把它看成下面这种结构：
 
 ```c
   if ((a == NULL) || (b == NULL) || (c == NULL))
 ```
 
-Now, NULL is defined as this expression, and it includes a cast:
+而 `NULL`
+又是这样定义的，
+其中还包含了一个 cast：
 
 ```c
 #define NULL (void *)0
 ```
 
-So let's look at the call chain of the IF line above:
+所以我们沿着调用链来看一下：
 
- + `binexpr(0)` is called from `if_statement()`
- + `binexpr(0)` parses the `==` (which has precedence 40) and
-    calls `binexpr(40)`
- + `binexpr(40)` calls `prefix()`
- + `prefix()` calls `postfix()`
- + `postfix()` calls `primary()`
- + `primary()` sees the left parenthesis at the start of the `(void *)0`
-    and calls `paren_expression()`
- + `paren_expression()` sees the `void` token and calls
-   `parse_cast()`. Once the cast is parsed, it calls `binexpr(0)` to
-    parse the `0`.
+ + `binexpr(0)` 从 `if_statement()` 被调用
+ + `binexpr(0)` 解析到 `==`
+    （它的优先级是 40），
+    然后调用 `binexpr(40)`
+ + `binexpr(40)` 调用 `prefix()`
+ + `prefix()` 调用 `postfix()`
+ + `postfix()` 调用 `primary()`
+ + `primary()` 看到 `(void *)0`
+    开头的左括号，
+    然后调用 `paren_expression()`
+ + `paren_expression()` 看到 `void` token，
+    调用 `parse_cast()`。
+    cast 解析完之后，
+    它再调用 `binexpr(0)`
+    去解析那个 `0`
 
-And that's the problem. The value of NULL, i.e. `0` should still be
-at precedence level 40, but `paren_expression()` just reset it back to
-zero.
+问题就出在这里。
+`NULL` 里的 `0`
+本来仍然应该处在优先级 40 这一层上下文中，
+但 `paren_expression()`
+却把它直接重置回了 0。
 
-This means that we will now parse `NULL || b`, making an AST tree out of
-it instead of parsing `a == NULL` and building that AST tree.
+这意味着，
+我们会错误地把 `NULL || b`
+先结合起来构建 AST，
+而不是先把 `a == NULL`
+作为一个整体去建树。
 
-The solution is to ensure that the previous token precedence is passed
-through the call chain all the way from `binexpr()` up to 
-`paren_expression()`. This means that:
+解决办法就是：
+确保“前一个 token 的优先级”
+能够从 `binexpr()`
+一路沿着调用链传递到
+`paren_expression()`。
+于是现在：
 
- + `prefix()`, `postfix()`, `primary()` and `paren_expression()`
+ + `prefix()`、`postfix()`、`primary()` 和 `paren_expression()`
 
-all now take an `int ptp` argument and this is passed on.
+这些函数全都多接收了一个 `int ptp` 参数，
+并且会继续把它往下传。
 
-The program `tests/input143.c` checks that this change now works
-for `if (a==NULL || b==NULL || c==NULL)`.
+`tests/input143.c`
+会检查这项修改，
+验证
+`if (a==NULL || b==NULL || c==NULL)`
+现在已经能被正确解析。
 
-## Pointers, `+=` and `-=`
+## 指针、`+=` 和 `-=`
 
-A while back, I realised that if we were adding an integer value to a
-pointer, we needed to scale the integer by the type size that the pointer
-points at. For example:
+前面某一段时间里，
+我意识到：
+如果我们给一个指针加上整数值，
+就必须先按“该指针所指向类型的大小”
+对这个整数进行缩放。
+例如：
 
 ```c
 int list[]= {3, 5, 7, 9, 11, 13, 15};
@@ -181,13 +229,24 @@ int main() {
 }
 ```
 
-should print the value at the base of `list`, i.e. 3. The `lptr` should
-be incremented by the *size* of `int`, i.e. 4, so that it now points at
-the next element in the `list`.
+这里应该先打印出 `list`
+起始位置上的值，
+也就是 3。
+而 `lptr`
+在执行加一时，
+实际增加的应该是 `int` 的 *大小*，
+也就是 4，
+这样它才会正确指向 `list`
+中的下一个元素。
 
-Now, we do this for the `+` and `-` operators, but I forgot to implement
-it for the `+=` and `-=` operators. Fortunately this was easy to fix.
-At the bottom of `modify_type()` in `types.c`, we now have:
+目前我们已经会对 `+` 和 `-`
+做这件事，
+但我忘了把同样的逻辑补到
+`+=` 和 `-=` 上。
+幸好这个修复很简单。
+现在在 `types.c`
+的 `modify_type()` 底部，
+代码是这样的：
 
 ```c
   // We can scale only on add and subtract operations
@@ -206,13 +265,21 @@ At the bottom of `modify_type()` in `types.c`, we now have:
   }
 ```
 
-You can see I've added A_ASPLUS and A_ASMINUS to the list of operations
-where we can scale an int value.
+你可以看到，
+我把 `A_ASPLUS`
+和 `A_ASMINUS`
+也加入了“允许做缩放”的运算列表中。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-That's enough mopping up for now. When I fixed up the `+=` and `-=` problem,
-it highlighted a big issue with the `++` and `--` operators (prefix and
-postfix) as applied to pointers.
+这轮收尾先到这里。
+而当我修 `+=` 和 `-=`
+这个问题时，
+它又顺手暴露出了一个更大的坑：
+当 `++` 和 `--`
+（无论前缀还是后缀）
+作用在指针上时，
+我们的处理方式有明显问题。
 
-In the next part of our compiler writing journey, I will tackle this issue. [Next step](../58_Ptr_Increments/Readme.md)
+在编译器编写之旅的下一部分中，
+我会正面解决这个问题。 [下一步](../58_Ptr_Increments/Readme.md)

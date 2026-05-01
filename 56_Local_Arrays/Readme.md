@@ -1,16 +1,22 @@
-# Part 56: Local Arrays
+# 第 56 部分：局部数组
 
-Well, colour me surprised. It wasn't hard to get local arrays implemented
-at all. It turns out that we had all the pieces in the compiler already,
-we just had to wire them together.
+说实话，
+这次还真有点出乎我意料。
+把局部数组实现出来，
+几乎一点都不难。
+原来编译器里需要的拼图其实早就都有了，
+我们只是一直没把它们真正接上线而已。
 
-## Local Array Parsing
+## 局部数组的解析
 
-Let's start on the parsing side. I want to allow local array declaration
-but only with a number of elements, no assignment of values.
+先从解析这边开始。
+我想支持局部数组声明，
+但只允许写“元素个数”，
+不允许在声明时直接赋值初始化。
 
-The declaration side is easy, we just add these lines to
-`array_declaration()` in `decl.c`:
+声明这一侧其实很简单，
+只要在 `decl.c` 的 `array_declaration()`
+里加上下面这些代码：
 
 ```c
   // Add this as a known array. We treat the
@@ -24,7 +30,8 @@ The declaration side is easy, we just add these lines to
   }
 ```
 
-Now, we must prevent assignment to local arrays:
+接下来，
+我们还得阻止对局部数组做初始化赋值：
 
 ```c
   // Array initialisation
@@ -33,7 +40,7 @@ Now, we must prevent assignment to local arrays:
       fatals("Variable can not be initialised", varname);
 ```
 
-I also added some more error checking:
+我还顺手补了一些额外的错误检查：
 
 ```c
   // Set the size of the array and the number of elements
@@ -42,17 +49,24 @@ I also added some more error checking:
     fatals("Array must have non-zero elements", sym->name);
 ```
 
-And that's it on the declaration side for local arrays.
+到这里为止，
+局部数组在“声明解析”这一侧的工作就做完了。
 
-## Code Generation
+## 代码生成
 
-In `cg.c`, we have a function `newlocaloffset()` that calculates the
-offset of a local variable relative to the top of the stack frame. Its
-argument was a primitive type because the compiler only allowed int
-and pointer types as local variables.
+在 `cg.c` 里，
+有个 `newlocaloffset()` 函数，
+负责计算局部变量
+相对于当前栈帧顶部的偏移量。
+它原本接收的是 primitive type，
+因为当时编译器只允许局部变量是 `int`
+或者指针类型。
 
-Now that each symbol has its size (which `sizeof()` uses), we can change
-the code in this function to use the symbol's size:
+现在每个符号本身都已经带有自己的 `size`
+信息了
+（`sizeof()` 也是依赖这个工作的），
+所以我们可以把这个函数的实现
+改成直接根据符号大小来分配：
 
 ```c
 // Create the position of a new local variable.
@@ -64,8 +78,9 @@ static int newlocaloffset(int size) {
 }
 ```
 
-And in the code that generates the function's preamble, `cgfuncpreamble()`,
-we only have to make these changes:
+而在负责生成函数前导代码的
+`cgfuncpreamble()` 中，
+只需要做下面这些修改：
 
 ```c
   // Copy any in-register parameters to the stack, up to six of them
@@ -87,13 +102,18 @@ we only have to make these changes:
   }
 ```
 
-That's it! It possibly means that we can also allow structs and unions
-as local variables. I haven't worried about this yet, but it is something
-to explore later.
+就这些，
+搞定。
+这甚至还暗示了一件事：
+我们也许同样可以支持把 struct 和 union
+作为局部变量。
+我这次还没去碰这个方向，
+不过以后值得继续探索。
 
-## Testing the Changes
+## 测试这些修改
 
-`test/input140.c` declares:
+`test/input140.c`
+里声明了：
 
 ```c
 int main() {
@@ -103,16 +123,26 @@ int main() {
   ...
 ```
 
-The array is filled with a FOR loop, `i` being the index. The `z` local
-is also initialised. This checks to see if any of the variables will
-tromp over the other variables. It also checks that we can assign all
-elements of the array and get their values back.
+这个数组会用一个 FOR 循环来填充，
+其中 `i` 作为下标。
+局部变量 `z`
+也会被初始化。
+这个测试用来检查：
+这些局部变量之间
+是否会互相踩坏彼此的存储空间。
+同时它也验证了：
+我们确实可以给数组所有元素赋值，
+并且之后还能正确地把这些值读回来。
 
-Files `test/input141.c` and `test/input142.c` check that the compiler
-spots and rejects arrays as parameters and array declarations with no
-elements.
+`test/input141.c`
+和 `test/input142.c`
+则用来检查：
+编译器能否正确识别并拒绝
+“数组作为参数”
+以及“元素个数为零的数组声明”这两类非法情况。
 
-## Conclusion and What's Next
+## 总结与下一步
 
-In the next part of our compiler writing journey, I'll return to mopping
-up duties. [Next step](../57_Mop_up_pt3/Readme.md)
+在编译器编写之旅的下一部分中，
+我会回到继续做“收尾清扫（mopping up）”
+这件事上。 [下一步](../57_Mop_up_pt3/Readme.md)

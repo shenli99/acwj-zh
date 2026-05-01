@@ -1,13 +1,20 @@
-# Part 58: Fixing Pointer Increments/Decrements
+# 第 58 部分：修复指针的自增/自减
 
-In the last part of our compiler writing journey, I mentioned that there
-was a problem with pointer increments and decrements. Let's see what the
-problem is and how I fixed it.
+在编译器编写之旅的上一部分里，
+我提到过：
+指针的自增和自减存在问题。
+这一章我们就来看看，
+问题到底是什么，
+以及我是怎么把它修掉的。
 
-We saw with the AST operations A_ADD, A_SUBTRACT, A_ASPLUS and A_ASMINUS
-where one operand is a pointer and the other is an integer type, we need
-to scale the integer value by the size of the type that the pointer
-points at. In `modify_type()` in `types.c`:
+我们之前已经看到，
+对于 AST 操作 `A_ADD`、`A_SUBTRACT`、
+`A_ASPLUS` 和 `A_ASMINUS`，
+如果一边是指针、
+另一边是整数类型，
+那么就必须按“指针所指向类型的大小”
+对这个整数值做缩放。
+在 `types.c` 的 `modify_type()` 中：
 
 ```c
   // We can scale only on add and subtract operations
@@ -26,15 +33,21 @@ points at. In `modify_type()` in `types.c`:
   }
 ```
 
-But this scaling doesn't occur when we use `++` or `--`, either as
-preincrement/decrement or postincrement/decrement operators. Here,
-we simply strap an A_PREINC, A_PREDEC, A_POSTINC or A_POSTDEC AST node
-to the AST tree that we are operating on, and then leave it to the code generator
-to deal with the situation.
+但这种缩放并不会在 `++` 或 `--`
+里自动发生，
+无论它们是前缀自增/自减，
+还是后缀自增/自减。
+在这些情况下，
+我们只是简单地在 AST 树上
+挂一个 `A_PREINC`、`A_PREDEC`、
+`A_POSTINC` 或 `A_POSTDEC` 节点，
+然后把问题留给代码生成器去处理。
 
-Up to now, this got resolved when we call either `cgloadglob()` or
-`cgloadlocal()` in `cg.c` to load the value of a global or local variable.
-For example:
+到目前为止，
+这件事主要是在 `cg.c`
+里调用 `cgloadglob()` 或 `cgloadlocal()`
+去加载全局变量或局部变量的值时顺便解决的。
+例如：
 
 ```c
 int cgloadglob(struct symtable *sym, int op) {
@@ -52,24 +65,42 @@ int cgloadglob(struct symtable *sym, int op) {
 }
 ```
 
-Note, however, that the `incq` increments by one. That's fine if the
-variable we are incrementing is of integer type, but it fails to deal
-with variables that are of pointer type.
+但这里有个问题：
+`incq`
+一次只会加一。
+如果被自增的变量本身是整数类型，
+当然没问题；
+可如果它是指针类型，
+那这种做法就完全不对了。
 
-As well, the functions `cgloadglob()` and `cgloadlocal()` are very similar.
-They differ in what instructions we use to access the variable: is it
-at a fixed location, or a location relative to the stack frame.
+此外，
+`cgloadglob()` 和 `cgloadlocal()`
+这两个函数本身也非常相似。
+它们的区别只在于：
+访问变量时到底该使用哪种指令，
+变量是在一个固定命名位置上，
+还是在相对于当前栈帧的位置上。
 
-## Fixing the Problem
+## 修复这个问题
 
-For a while I thought I could get the parser to build an AST tree similar
-to the one that `modify_type()` does, but I gave up on that. Thank goodness.
-I decided that, as `++` and `--` are already being done in `cgloadglob()`,
-that I should attack the problem here.
+有一阵子我还以为，
+也许可以让解析器构造出
+和 `modify_type()`
+那边类似的一棵 AST 树，
+但后来我放弃了。
+谢天谢地，
+还好没继续在那条路上越陷越深。
+我最后决定：
+既然 `++` 和 `--`
+本来就是在 `cgloadglob()`
+里处理的，
+那就干脆在这一层把问题解决掉。
 
-Halfway through, I realised that I could merge `cgloadglob()` and
-`cgloadlocal()` into a single function. Let's look at the solution
-in stages.
+做到一半时，
+我意识到还可以顺手把
+`cgloadglob()` 和 `cgloadlocal()`
+合并成一个函数。
+下面按几个阶段来看这个方案。
 
 ```c
 // Load a value from a variable into a register.
@@ -89,9 +120,11 @@ int cgloadvar(struct symtable *sym, int op) {
     offset= typesize(value_at(sym->type), sym->ctype);
 ```
 
-We start by assuming that we will be doing +1 as an increment. However,
-once we realise that we could be incrementing a pointer, we change
-this to the the size of the type that it points to.
+一开始，
+我们默认自增的步长就是 `+1`。
+但一旦发现这个符号是个指针，
+就把这个偏移量改成
+“它所指向类型的大小”。
 
 ```c
   // Negate the offset for decrements
@@ -99,7 +132,10 @@ this to the the size of the type that it points to.
     offset= -offset;
 ```
 
-Now the `offset` is negative if we are going to do a decrement.
+这样一来，
+如果当前做的是自减，
+`offset`
+就会变成负数。
 
 ```c
   // If we have a pre-operation
@@ -111,9 +147,10 @@ Now the `offset` is negative if we are going to do a decrement.
       fprintf(Outfile, "\tleaq\t%s(%%rip), %s\n", sym->name, reglist[r]);
 ```
 
-This is where our algorithm differs from the old code. The old code used
-the `incq` instruction, but that limits the variable change to exactly one.
-Now that we have the variable's address in our register...
+这正是新算法和旧代码不同的地方。
+旧代码直接使用 `incq` 指令，
+但它把变量的变化量死死限制成了 1。
+现在我们先把变量地址装进寄存器……
 
 ```c
     // and change the value at that address
@@ -125,12 +162,14 @@ Now that we have the variable's address in our register...
   }
 ```
 
-we can add the offset on to the variable, using the register as a pointer
-to the variable. We have to use different instructions based on the size
-of the variable.
+……然后就可以把 `offset`
+直接加到这个变量本身上，
+也就是把寄存器当成指向该变量的指针来用。
+同时还必须根据变量大小
+选用不同的指令。
 
-We've done any pre-increment or pre-decrement operation. Now we can load
-the variable's value into a register:
+前缀自增或前缀自减处理完之后，
+就可以把变量的值加载进寄存器了：
 
 ```c
   // Now load the output register with the value
@@ -149,14 +188,18 @@ the variable's value into a register:
   }
 ```
 
-Depending on if the symbol is local, or global,
-we load from a named location or from an location relative to the
-frame pointer. We choose an instruction to zero pad the result
-based on the symbol's size.
+根据这个符号究竟是局部变量还是全局变量，
+我们要么从一个具名位置加载，
+要么从相对帧指针的位置加载。
+同时还得根据符号的大小，
+选择合适的指令来做零扩展或符号扩展。
 
-The value is safely in register `r`. But now we need to do any post-increment
-or post-decrement. We can re-use the pre-op code, but we'll need a new
-register:
+现在值已经安全地装在寄存器 `r`
+里面了。
+但如果操作是后缀自增或后缀自减，
+我们接下来还得把“修改变量本身”这一步补上。
+这部分可以重用前缀操作的代码，
+不过需要再申请一个新寄存器：
 
 ```c
   // If we have a post-operation, get a new register
@@ -174,9 +217,13 @@ register:
 }
 ```
 
-So the code for `cgloadvar()` is about as complex as the old code, but
-it now deals with pointer increments. The `tests/input145.c` test program
-verifies that this new code works:
+所以整体来看，
+`cgloadvar()`
+的复杂度其实和旧代码差不多，
+但它现在终于能正确处理
+指针的自增问题了。
+`tests/input145.c`
+这个测试程序会验证新代码确实有效：
 
 ```c
 int list[]= {3, 5, 7, 9, 11, 13, 15};
@@ -196,17 +243,23 @@ int main() {
 }
 ```
 
-## How Did I Miss Modulo?
+## 我怎么会漏掉取模
 
-With this fixed, I went back to feeding the compiler source code to itself
-and found, to my amazement, that the modulo operators `%` and `%=` were
-missing. I have no idea why I hadn't put them in before.
+把这个问题修好之后，
+我又回头继续让编译器编译它自己的源码。
+结果让我非常惊讶的是：
+取模运算符 `%` 和 `%=`
+居然根本还没实现。
+我完全不知道自己之前为什么会把它们漏掉。
 
-### New Tokens and AST Operators
+### 新的 token 和 AST 运算符
 
-Adding new operators to the compiler now is tricky because we have to
-synchronise changes in several places. Let's see where. In `defs.h`
-we need to add the tokens:
+现在要给编译器新增一个运算符，
+已经变成了一件不太轻松的事，
+因为我们得在好几个地方同步修改。
+先看有哪些地方。
+在 `defs.h` 里，
+我们得先补上这些 token：
 
 ```c
 // Token types
@@ -226,7 +279,9 @@ enum {
 };
 ```
 
-with T_ASMOD and T_MOD the new tokens. Now we need to create AST ops to match:
+这里新增的是 `T_ASMOD`
+和 `T_MOD`。
+接着我们还得创建对应的 AST 操作符：
 
 ```c
  // AST node types. The first few line up
@@ -241,9 +296,10 @@ enum {
 };
 ```
 
-Now we need to add the scanner changes to scan these tokens. I won't show
-the code, but I will show the change to the table of token strings in
-`scan.c`:
+然后还得在扫描器里加上对这些 token 的识别。
+具体代码我就不贴了，
+这里只展示 `scan.c`
+里 token 字符串表的变化：
 
 ```c
 // List of token strings, for debugging purposes
@@ -256,10 +312,13 @@ char *Tstring[] = {
 };
 ```
 
-### Operator Precedence
+### 运算符优先级
 
-Now we need to set the operators' precedence in `expr.c`. T_SLASH used to
-be the highest operator but it's been replaced with T_MOD:
+接下来，
+我们还得在 `expr.c`
+里给这些运算符设定优先级。
+以前优先级表里的最高项是 `T_SLASH`，
+现在则扩展成了 `T_MOD`：
 
 ```c
 // Convert a binary operator token into a binary AST operation.
@@ -300,17 +359,19 @@ static int op_precedence(int tokentype) {
 }
 ```
 
-### Code Generation
+### 代码生成
 
-We already have a `cgdiv()` function to generate the x86-64 instructions
-to do division. Looking at the manual for the `idiv` instruction:
+我们原本已经有一个 `cgdiv()` 函数，
+用来为 x86-64 生成除法指令。
+查一下 `idiv` 指令的手册说明：
 
 > idivq S: signed divide `%rdx:%rax` by S. The quotient is
   stored in `%rax`. The remainder is stored in `%rdx`.
 
-So we can modify `cgdiv()` to take the AST operation being performed,
-and it can do both division and remainder (modulo). The new function
-in `cg.c` is:
+于是我们可以把 `cgdiv()`
+扩展成既能处理除法，
+也能处理取模。
+`cg.c` 里的新函数如下：
 
 ```c
 // Divide or modulo the first register by the second and
@@ -328,7 +389,8 @@ int cgdivmod(int r1, int r2, int op) {
 }
 ```
 
-The `tests/input147.c` confirms that the above changes work:
+`tests/input147.c`
+会确认上述修改确实生效：
 
 ```c
 #include <stdio.h>
@@ -344,15 +406,19 @@ int main() {
 }
 ```
 
-## Why Doesn't It Link
+## 为什么链接不过
 
-We are now at the point where our compiler can parse each and every of its
-own source code files. But when I try to link them, I get a warning about
-missing `L0` labels.
+到这一步，
+我们的编译器其实已经可以解析它自己所有的源码文件了。
+但当我尝试把这些目标文件链接起来时，
+却得到了关于缺失 `L0` 标签的警告。
 
-After a bit of investigation, it turns out that I wasn't properly
-propagating the end label for loops and switches in `genIF()` in `gen.c`.
-The fix is on line 49:
+稍微查了一下之后发现，
+问题出在 `gen.c`
+里的 `genIF()`：
+我没有正确把循环和 `switch`
+对应的结束标签传递下去。
+修复点就在第 49 行：
 
 ```c
 // Generate the code for an IF statement
@@ -371,8 +437,11 @@ static int genIF(struct ASTnode *n, int looptoplabel, int loopendlabel) {
 }
 ```
 
-Now that `loopendlabel` is being propagated, I can do this (in a shell
-script I call `memake`):
+现在 `loopendlabel`
+已经能够正确传下去了，
+于是我终于可以这样做了
+（这是一段我命名为 `memake`
+的 shell 脚本）：
 
 ```
 #!/bin/sh
@@ -389,8 +458,9 @@ cc -o cwj0 cg.o decl.o expr.o gen.o main.o misc.o \
         opt.o scan.o stmt.o sym.o tree.o types.o
 ```
 
-We end up with a binary, `cwj0`, which is the result of the compiler
-compiling itself.
+这样一来，
+我们最终就能得到一个新的二进制文件 `cwj0`，
+也就是由编译器自己把自己编译出来的结果。
 
 ```
 $ size cwj0
@@ -402,30 +472,51 @@ cwj0: ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically
       linked, interpreter /lib64/l, for GNU/Linux 3.2.0, not stripped
 ```
 
-## Conclusion and What's Next
+## 总结与下一步
 
-For the pointer increment problem, I definitely had to scratch my head quite
-a lot and look at several possible alternate solutions. I did get halfway
-through trying to build a new AST tree with an A_SCALE in it. Then I tossed it
-all away and went for the change in `cgloadvar()`. That's much nicer.
+关于指针自增这个问题，
+我确实绕着想了很久，
+也试过好几种可能的替代方案。
+中途我一度已经写到一半，
+准备构造一棵包含 `A_SCALE`
+的新 AST 树。
+后来我把这些全扔了，
+改成在 `cgloadvar()`
+里解决。
+现在回头看，
+这条路明显更干净。
 
-The modulo operators were simple to add (in theory), but annoyingly
-difficult to get everything synchronised (in practice). There is probably
-some scope to refactor here to make the synchronisation much easier.
+取模运算符在“理论上”很好加，
+但在“实际操作上”却烦人得多，
+因为我们必须让多个位置的改动始终保持同步。
+这块后面大概还有些重构空间，
+也许可以让同步工作简单很多。
 
-Then, while trying to link all the object files that our compiler had
-made from its own source code, I found that we were not propagating
-loop/switch end labels properly.
+然后，
+在尝试把编译器自己生成出来的那些目标文件链接起来时，
+我又发现：
+我们此前并没有正确传递
+循环/`switch`
+的结束标签。
 
-We've now reached the point where our compiler can parse every one of
-its source code files, generate assembly code for them, and we can link them.
-We have reached the final stage of our journey, one that is probably
-going to be the most painful, the **WDIW** stage: why doesn't it work?
+现在我们终于走到这样一个阶段：
+编译器已经能够解析它自己全部的源码文件，
+为它们生成汇编代码，
+并且最终把它们链接起来。
+接下来，
+我们就要进入这趟旅程的最后一个阶段了，
+而且它很可能是最痛苦的一段：
+**WDIW**，
+也就是 why doesn't it work?
 
-Here, we don't have a debugger, we are going to have to look at lots
-of assembly output. We'll have to single-step assembly and look at
-register values.
+在这个阶段里，
+我们手上没有调试器，
+只能去看大量汇编输出，
+还得单步执行汇编，
+观察寄存器里的值。
 
-In the next part of our compiler writing journey, I will start on the
-**WDIW** stage. We are going to need some strategies to make our work
-effective. [Next step](../59_WDIW_pt1/Readme.md)
+在编译器编写之旅的下一部分中，
+我会正式开始进入
+**WDIW** 阶段。
+我们需要制定一些策略，
+确保这项工作能高效推进。 [下一步](../59_WDIW_pt1/Readme.md)
