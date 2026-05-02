@@ -1,10 +1,32 @@
 site_name: acwj
 theme:
-  name: mkdocs
+  name: material
+  language: zh
+  font: false
+  features:
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: 切换到深色模式
+    - scheme: slate
+      primary: black
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到浅色模式
 docs_dir: docs
 site_dir: site
 exclude_docs: |
   plans/
+extra_css:
+  - stylesheets/extra.css
 nav:
   - 首页: index.md
   - 教程:
