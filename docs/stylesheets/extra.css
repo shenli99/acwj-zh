@@ -52,19 +52,8 @@ body {
 }
 
 .md-header,
-.md-header--shadow,
-.md-tabs {
+.md-header--shadow {
   box-shadow: none;
-}
-
-.md-tabs {
-  background: color-mix(in srgb, var(--md-default-bg-color) 78%, transparent);
-  border-bottom: 1px solid var(--acwj-divider-color);
-}
-
-.md-tabs__link--active,
-.md-tabs__link:hover {
-  color: var(--md-typeset-a-color);
 }
 
 .md-main__inner {
@@ -356,16 +345,8 @@ body {
 }
 
 @media (max-width: 76.2344em) {
-  .md-tabs {
-    display: none;
-  }
-
   .md-main__inner {
     margin-top: 0.5rem;
-  }
-
-  .md-sidebar--primary {
-    width: 14.2rem;
   }
 
   .acwj-home-hero__grid,
