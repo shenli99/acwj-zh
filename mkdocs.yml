@@ -1,5 +1,6 @@
 site_name: acwj
 site_description: 一个逐步构建可自举 C 子集编译器的实践教程
+site_url: https://shenli99.github.io/acwj-zh/
 theme:
   name: material
   language: zh
