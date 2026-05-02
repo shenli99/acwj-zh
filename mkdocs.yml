@@ -1,0 +1,77 @@
+site_name: acwj
+theme:
+  name: mkdocs
+docs_dir: docs
+site_dir: site
+exclude_docs: |
+  plans/
+nav:
+  - 首页: index.md
+  - 教程:
+      - 第 00 部分: 00_Introduction/Readme.md
+      - 第 01 部分: 01_Scanner/Readme.md
+      - 第 02 部分: 02_Parser/Readme.md
+      - 第 03 部分: 03_Precedence/Readme.md
+      - 第 04 部分: 04_Assembly/Readme.md
+      - 第 05 部分: 05_Statements/Readme.md
+      - 第 06 部分: 06_Variables/Readme.md
+      - 第 07 部分: 07_Comparisons/Readme.md
+      - 第 08 部分: 08_If_Statements/Readme.md
+      - 第 09 部分: 09_While_Loops/Readme.md
+      - 第 10 部分: 10_For_Loops/Readme.md
+      - 第 11 部分: 11_Functions_pt1/Readme.md
+      - 第 12 部分: 12_Types_pt1/Readme.md
+      - 第 13 部分: 13_Functions_pt2/Readme.md
+      - 第 14 部分: 14_ARM_Platform/Readme.md
+      - 第 15 部分: 15_Pointers_pt1/Readme.md
+      - 第 16 部分: 16_Global_Vars/Readme.md
+      - 第 17 部分: 17_Scaling_Offsets/Readme.md
+      - 第 18 部分: 18_Lvalues_Revisited/Readme.md
+      - 第 19 部分: 19_Arrays_pt1/Readme.md
+      - 第 20 部分: 20_Char_Str_Literals/Readme.md
+      - 第 21 部分: 21_More_Operators/Readme.md
+      - 第 22 部分: 22_Design_Locals/Readme.md
+      - 第 23 部分: 23_Local_Variables/Readme.md
+      - 第 24 部分: 24_Function_Params/Readme.md
+      - 第 25 部分: 25_Function_Arguments/Readme.md
+      - 第 26 部分: 26_Prototypes/Readme.md
+      - 第 27 部分: 27_Testing_Errors/Readme.md
+      - 第 28 部分: 28_Runtime_Flags/Readme.md
+      - 第 29 部分: 29_Refactoring/Readme.md
+      - 第 30 部分: 30_Design_Composites/Readme.md
+      - 第 31 部分: 31_Struct_Declarations/Readme.md
+      - 第 32 部分: 32_Struct_Access_pt1/Readme.md
+      - 第 33 部分: 33_Unions/Readme.md
+      - 第 34 部分: 34_Enums_and_Typedefs/Readme.md
+      - 第 35 部分: 35_Preprocessor/Readme.md
+      - 第 36 部分: 36_Break_Continue/Readme.md
+      - 第 37 部分: 37_Switch/Readme.md
+      - 第 38 部分: 38_Dangling_Else/Readme.md
+      - 第 39 部分: 39_Var_Initialisation_pt1/Readme.md
+      - 第 40 部分: 40_Var_Initialisation_pt2/Readme.md
+      - 第 41 部分: 41_Local_Var_Init/Readme.md
+      - 第 42 部分: 42_Casting/Readme.md
+      - 第 43 部分: 43_More_Operators/Readme.md
+      - 第 44 部分: 44_Fold_Optimisation/Readme.md
+      - 第 45 部分: 45_Globals_Again/Readme.md
+      - 第 46 部分: 46_Void_Functions/Readme.md
+      - 第 47 部分: 47_Sizeof/Readme.md
+      - 第 48 部分: 48_Static/Readme.md
+      - 第 49 部分: 49_Ternary/Readme.md
+      - 第 50 部分: 50_Mop_up_pt1/Readme.md
+      - 第 51 部分: 51_Arrays_pt2/Readme.md
+      - 第 52 部分: 52_Pointers_pt2/Readme.md
+      - 第 53 部分: 53_Mop_up_pt2/Readme.md
+      - 第 54 部分: 54_Reg_Spills/Readme.md
+      - 第 55 部分: 55_Lazy_Evaluation/Readme.md
+      - 第 56 部分: 56_Local_Arrays/Readme.md
+      - 第 57 部分: 57_Mop_up_pt3/Readme.md
+      - 第 58 部分: 58_Ptr_Increments/Readme.md
+      - 第 59 部分: 59_WDIW_pt1/Readme.md
+      - 第 60 部分: 60_TripleTest/Readme.md
+      - 第 61 部分: 61_What_Next/Readme.md
+      - 第 62 部分: 62_Cleanup/Readme.md
+      - 第 63 部分: 63_QBE/Readme.md
+      - 第 64 部分: 64_6809_Target/Readme.md
+  - 附录:
+      - 6809 开发笔记: 64_6809_Target/docs/NOTES.md
