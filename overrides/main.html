@@ -96,6 +96,53 @@
 {% endblock %}
 
 {% block content %}
+  <div class="acwj-compat-warning" id="acwj-compat-warning" hidden>
+    <p>当前浏览器对本站样式特性的支持有限，侧边栏或导航可能显示异常。建议优先使用 Chrome 或 Edge 打开。</p>
+    <button type="button" id="acwj-compat-warning-dismiss" aria-label="关闭兼容性提示">关闭</button>
+  </div>
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var notice = document.getElementById("acwj-compat-warning");
+      var dismiss = document.getElementById("acwj-compat-warning-dismiss");
+      if (!notice || !dismiss) return;
+
+      var supportsColorMix = false;
+      var supportsBackdrop = false;
+
+      if (window.CSS && CSS.supports) {
+        supportsColorMix = CSS.supports("color", "color-mix(in srgb, black 50%, white)");
+        supportsBackdrop =
+          CSS.supports("backdrop-filter", "blur(1px)") ||
+          CSS.supports("-webkit-backdrop-filter", "blur(1px)");
+      }
+
+      if (supportsColorMix && supportsBackdrop) return;
+
+      root.classList.add("acwj-legacy-browser");
+
+      try {
+        if (window.sessionStorage && sessionStorage.getItem("acwj-compat-warning-dismissed") === "1") {
+          return;
+        }
+      } catch (error) {
+      }
+
+      notice.hidden = false;
+      notice.classList.add("is-visible");
+
+      dismiss.addEventListener("click", function () {
+        notice.hidden = true;
+        notice.classList.remove("is-visible");
+        try {
+          if (window.sessionStorage) {
+            sessionStorage.setItem("acwj-compat-warning-dismissed", "1");
+          }
+        } catch (error) {
+        }
+      });
+    })();
+  </script>
   {% if page.is_homepage %}
     <div class="acwj-home-content">
       {{ super() }}

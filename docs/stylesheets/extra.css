@@ -48,7 +48,7 @@ body {
 }
 
 .md-header {
-  backdrop-filter: saturate(140%) blur(14px);
+  background-color: rgba(52, 73, 94, 0.92);
 }
 
 .md-header,
@@ -62,6 +62,52 @@ body {
 
 .md-content__inner {
   padding-bottom: 3rem;
+}
+
+.acwj-compat-warning {
+  display: none;
+  margin: 0 0 1rem;
+  border: 1px solid rgba(185, 28, 28, 0.18);
+  border-radius: 0.9rem;
+  padding: 0.85rem 1rem;
+  background: #fff4e5;
+  color: #7c2d12;
+}
+
+.acwj-compat-warning.is-visible {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.acwj-compat-warning p {
+  margin: 0;
+}
+
+.acwj-compat-warning button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  background: rgba(124, 45, 18, 0.12);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.acwj-compat-warning button:hover {
+  background: rgba(124, 45, 18, 0.18);
+}
+
+[data-md-color-scheme="slate"] .acwj-compat-warning {
+  border-color: rgba(251, 146, 60, 0.26);
+  background: #2b2118;
+  color: #fdba74;
+}
+
+.acwj-legacy-browser .md-header {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .md-sidebar--secondary {
@@ -140,7 +186,7 @@ body {
 
 .md-nav__link:focus-visible,
 .md-nav__link:hover {
-  background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+  background: rgba(15, 118, 110, 0.12);
 }
 
 .md-nav__title,
@@ -155,8 +201,8 @@ body {
 .acwj-home-hero {
   padding: 1.2rem 0 0.8rem;
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--md-accent-fg-color) 22%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--md-default-bg-color--lighter) 72%, transparent), transparent);
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), transparent);
 }
 
 .acwj-home-hero__grid,
@@ -176,7 +222,7 @@ body {
 .acwj-appendix-strip__grid {
   border: 1px solid var(--acwj-divider-color);
   border-radius: 1.2rem;
-  background: color-mix(in srgb, var(--md-default-bg-color--lighter) 92%, transparent);
+  background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 24px 70px -42px rgba(0, 0, 0, 0.3);
 }
 
@@ -305,14 +351,14 @@ body {
   align-items: center;
   border-radius: 999px;
   padding: 0.36rem 0.7rem;
-  background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+  background: rgba(15, 118, 110, 0.12);
   color: var(--md-default-fg-color);
   font-size: 0.8rem;
   text-decoration: none;
 }
 
 .acwj-stage-card__links a:hover {
-  background: color-mix(in srgb, var(--md-accent-fg-color) 18%, transparent);
+  background: rgba(15, 118, 110, 0.2);
   color: var(--md-typeset-a-color);
 }
 
@@ -342,6 +388,55 @@ body {
 .acwj-home-content > ul:first-of-type > li {
   break-inside: avoid;
   margin-bottom: 0.4rem;
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .md-header {
+    -webkit-backdrop-filter: saturate(140%) blur(14px);
+    backdrop-filter: saturate(140%) blur(14px);
+  }
+}
+
+@supports (color: color-mix(in srgb, black 50%, white)) {
+  .md-nav__link:focus-visible,
+  .md-nav__link:hover {
+    background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+  }
+
+  .acwj-home-hero {
+    background:
+      radial-gradient(circle at top left, color-mix(in srgb, var(--md-accent-fg-color) 22%, transparent), transparent 34%),
+      linear-gradient(180deg, color-mix(in srgb, var(--md-default-bg-color--lighter) 72%, transparent), transparent);
+  }
+
+  .acwj-home-hero__copy,
+  .acwj-home-hero__panel,
+  .acwj-stage-card,
+  .acwj-appendix-strip__grid {
+    background: color-mix(in srgb, var(--md-default-bg-color--lighter) 92%, transparent);
+  }
+
+  .acwj-stage-card__links a {
+    background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+  }
+
+  .acwj-stage-card__links a:hover {
+    background: color-mix(in srgb, var(--md-accent-fg-color) 18%, transparent);
+  }
+}
+
+@supports not (color: color-mix(in srgb, black 50%, white)) {
+  .acwj-legacy-browser .md-nav__link:focus-visible,
+  .acwj-legacy-browser .md-nav__link:hover,
+  .acwj-legacy-browser .acwj-stage-card__links a:hover {
+    color: var(--md-default-fg-color);
+  }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .acwj-legacy-browser .md-header {
+    background-color: var(--md-primary-fg-color);
+  }
 }
 
 @media (max-width: 76.2344em) {
@@ -381,6 +476,10 @@ body {
 
   .md-content__inner {
     padding-bottom: 2rem;
+  }
+
+  .acwj-compat-warning.is-visible {
+    flex-direction: column;
   }
 
   .md-typeset table:not([class]) th,
