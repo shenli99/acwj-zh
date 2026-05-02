@@ -1,80 +1,134 @@
-# Part 64: Self-compilation on an 8-bit CPU
+# 第 64 部分：在 8 位 CPU 上自编译
 
-I'm back with another chapter of this compiler writing journey. This time,
-the goal is get the compiler to compile itself on a 8-bit CPU from the 1980s.
-It's been an interesting, sometimes fun, sometimes painful task. Here's a
-summary of all the work that I've had to do.
+我又回来了，
+继续这一章编译器编写之旅。
+这一次，
+目标是让编译器在一颗来自 1980 年代的 8 位 CPU 上完成自编译。
+这是一项既有趣、
+有时也挺折磨人的工作。
+下面我会总结自己为此做过的事情。
 
-For the CPU, I chose the
-[Motorola 6809](https://en.wikipedia.org/wiki/Motorola_6809). This is
-probably one of the most sophisticated 8-bit CPUs from the 1980s, with
-a bunch of useful addressing modes and, importantly, a useful stack pointer.
+在 CPU 选择上，
+我挑了
+[Motorola 6809](https://en.wikipedia.org/wiki/Motorola_6809)。
+它大概算是 1980 年代功能最强的一批 8 位 CPU 之一，
+拥有不少很好用的寻址模式，
+更重要的是，
+它还有一个相当实用的栈指针。
 
-What makes it difficult to write a compiler for the 6809 is the address space
-limitation. Like many of the 8-bit CPUs, there only 64K of memory
-(yes, 65,536 _bytes_!) and, on most vintage 6809 systems, a significant
-portion of this is taken up by ROM.
+给 6809 写编译器最难的地方，
+在于地址空间限制。
+像很多 8 位 CPU 一样，
+它总共只有 64K 内存
+（没错，就是 65,536 个 _byte_！），
+而在大多数老式 6809 系统里，
+其中相当一部分还会被 ROM 占掉。
 
-I went in this direction as, in 2023, I decided to try and build a
-single board computer (SBC) using the 6809 as the CPU. In particular,
-I wanted to have a machine with at least half a megabyte of memory,
-a disk-like storage device, and a Unix-like operating system.
+我会往这个方向走，
+是因为到了 2023 年，
+我想尝试自己做一台以 6809 为 CPU 的
+单板计算机（SBC）。
+更具体地说，
+我想要一台至少有半兆内存、
+有类似磁盘的存储设备、
+还能跑类 Unix 操作系统的机器。
 
-The result is the [MMU09 SBC](https://github.com/DoctorWkt/MMU09).
-The project is semi-incomplete; it does have a Unix-like system,
-it does do multitasking, but there is no pre-emptive multitasking.
-Each process gets 63.5K of usable address space (i.e. RAM).
+最终的结果就是
+[MMU09 SBC](https://github.com/DoctorWkt/MMU09)。
+这个项目目前还没彻底做完；
+它已经有类 Unix 系统了，
+也支持多任务，
+但还没有抢占式多任务。
+每个进程大约能拿到 63.5K
+可用地址空间
+（也就是 RAM）。
 
-While I was working on MMU09, I needed to find a suitable C compiler to
-compile the code for the operating system, the libraries and the applications.
-I started with [CMOC](http://perso.b2b2c.ca/~sarrazip/dev/cmoc.html) but
-eventually switched over to [vbcc](http://www.compilers.de/vbcc.html).
-Along the way I found Alan Cox's
-[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)
-which is a work-in-progress C compiler for many 8-bit and 16-bit CPUs.
+在做 MMU09 的过程中，
+我需要找一套合适的 C 编译器，
+来编译操作系统、
+库
+以及各种应用程序。
+我最初用的是
+[CMOC](http://perso.b2b2c.ca/~sarrazip/dev/cmoc.html)，
+但后来改成了
+[vbcc](http://www.compilers.de/vbcc.html)。
+中途我还发现了 Alan Cox 的
+[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)，
+它是一套仍在开发中的 C 编译器，
+面向许多 8 位和 16 位 CPU。
 
-All of this got me to thinking: is it possible to have the C compiler
-run _on_ the 6809 and not just cross compile from a more powerful system?
-I thought the Fuzix Compiler Kit might be a contender but, no, it's just
-too big to fit on the 6809 itself.
+这一切最终让我开始思考：
+有没有可能让 C 编译器直接运行在 6809 *本机* 上，
+而不仅仅是在更强的系统上做交叉编译？
+我原本觉得 Fuzix Compiler Kit
+也许有机会胜任，
+但结果不行，
+它实在太大了，
+根本塞不进 6809 自身。
 
-So here we are with the question/goal: can the "acwj" compiler be modified
-to fit and run on a 6809 platform?
+于是问题，
+或者说目标，
+就变成了：
+能不能把 “acwj” 编译器改造成
+适合在 6809 平台上运行？
 
-## The 6809 CPU
+## 6809 这颗 CPU
 
-Let's start with a look at the 6809 CPU from a compiler writer's perspective.
-I've already mentioned the 64K address space limitation: that's going to
-require the "acwj" compiler to be completely restructured to fit. Now let's
-look at the 6809's architecture.
+先从编译器作者的视角，
+看一眼 6809。
+前面已经提过 64K 地址空间限制了：
+这会逼着 “acwj” 编译器必须做大幅重构，
+才能真正塞进去。
+现在先看它的体系结构。
 
 ![](docs/6809_Internal_Registers.png)
 
-Creative Commons CC0 license,
+Creative Commons CC0 license，
 [Wikipedia](https://commons.wikimedia.org/wiki/File:6809_Internal_Registers.svg)
 
-For an 8-bit CPU, the 6809 has quite a few registers. Well, it's not like
-the x64 or a RISC CPU with a bunch of general-purpose registers. There is
-a single 16-bit `D` register on which we can do logical and arithmetic
-operations. It can also be accessed as two 8-bit registers `A` and `B`, of
-which `B` is the least-significant byte in the `D` register.
+对于一颗 8 位 CPU 来说，
+6809 的寄存器其实不少。
+当然，
+它不像 x64
+或者某些 RISC CPU
+那样有一大堆通用寄存器。
+它的核心是一个 16 位的 `D` 寄存器，
+逻辑运算和算术运算基本都围绕它展开。
+同时，
+`D`
+还可以拆成两个 8 位寄存器 `A` 和 `B`，
+其中 `B`
+是 `D`
+的低字节。
 
-When doing logical and arithmetic operations, the second operand is
-either a memory location accessed via some addressing mode, or a literal value.
-The result of the operation is put back in the `D` register: hence, it
-_accumulates_ the operation's result.
+在做逻辑和算术运算时，
+第二个操作数要么来自通过某种寻址模式访问到的内存，
+要么来自一个字面量。
+运算结果总是回写到 `D`
+里，
+也就是说它天然是一个
+_accumulator_（累加器）式架构。
 
-To access memory, there are a bunch of addressing mode to do so. In fact,
-there are many more available than a compiler needs! We have the index
-registers `X` and `Y` to, for example, access an element in an array
-when we know the base address and `X` holds the element's index.
-We can also access memory by using a signed constant and the stack pointer
-`S` as the index; this allows us to treat `S` as a 
-[frame pointer](https://en.wikipedia.org/wiki/Call_stack#FRAME-POINTER).
-We can find the local variables of a function at addresses below the
-frame pointer and function arguments at addresses above the frame pointer.
+至于访问内存，
+6809 提供了相当多的寻址模式，
+其实多到比编译器真正需要的还要多。
+例如有索引寄存器 `X` 和 `Y`，
+可以拿来访问数组元素：
+如果你知道数组基地址，
+而 `X`
+里存着元素下标，
+那就很好用。
+我们也可以用一个有符号常量
+加上栈指针 `S`
+来访问内存；
+这使得 `S`
+基本上可以被当作
+[帧指针（frame pointer）](https://en.wikipedia.org/wiki/Call_stack#FRAME-POINTER)
+来用。
+函数的局部变量可以放在帧指针之下，
+而函数参数则放在帧指针之上。
 
-Let's have a look at some examples to make the above a bit clearer:
+看几个例子会更直观一些：
 
 ```
     ldd #2         # Load D with the constant 2
@@ -92,19 +146,26 @@ Let's have a look at some examples to make the above a bit clearer:
                    # variable and save it in the D register
 ```
 
-For more details, I'd recommend that you browse through the
-[6809 datasheet](docs/6809Data.pdf).
-Pages 5-6 cover the registers, pages 16-18 cover the addressing modes,
-and pages 25-27 list the available instructions.
+如果想看更细节的内容，
+我建议你直接翻一下
+[6809 数据手册](docs/6809Data.pdf)。
+第 5 到 6 页讲寄存器，
+第 16 到 18 页讲寻址模式，
+第 25 到 27 页列出了可用指令。
 
-Back to targetting the "acwj" compiler to the 6809. Well, having a lot
-of addressing modes is great. We can deal with 8-bit values and 16-bit
-values, but there are no 32-bit registers. OK, we can sort that out
-somehow.
+回到让 “acwj” 面向 6809 这件事上。
+多种寻址模式当然很好。
+我们可以直接处理 8 位和 16 位值，
+但它没有 32 位寄存器。
+好吧，
+这个还算能想办法解决。
 
-But the biggest problem, apart from the 64K address space,
-is that the "acwj" compiler was written for an architecture that has two-
-or three-operand instructions, and with a lot of available registers, e.g.
+真正更大的问题，
+除了 64K 地址空间之外，
+是 “acwj” 编译器原本是按那种拥有两操作数、
+三操作数指令，
+而且寄存器还很多的架构来写的。
+比如：
 
 ```
    load R1, _x		# Bring _x and _y into registers
@@ -113,38 +174,57 @@ or three-operand instructions, and with a lot of available registers, e.g.
    save R3, _z		# Store the result into _z
 ```
 
-The 6809 usually has the `D` register as one instruction operand, and
-memory or a literal value as the other operand; the result always ends
-up in the `D` register.
+而 6809 通常只有 `D`
+寄存器作为其中一个显式操作数，
+另一个操作数来自内存或字面量，
+结果永远落回 `D`
+本身。
 
-## Keeping the QBE Backend
+## 保留 QBE 后端
 
-I also wanted to keep the existing QBE backend in the compiler. I knew
-that this would be invaluable as I made changes to the compiler - I
-could run the tests with both the QBE and 6809 backends and compare
-results. And I could always stress-test the compiler by trying to
-perform the triple test using the QBE backend.
+我还想把现有的 QBE 后端继续保留下来。
+因为我知道：
+当我修改编译器时，
+这个后端会非常有价值。
+我可以让测试同时跑在 QBE
+和 6809 两个后端上，
+然后对比结果。
+而且，
+我也始终可以用 QBE 后端继续跑 triple test，
+拿它来给编译器做压力测试。
 
-So now the full goal is: can I take the abstract syntax tree (AST) generated
-by the compiler's parser and use it to generate assembly code for two
-completely different architectures: QBE (RISC-like, three-operand instructions)
-and the 6809 (only one register, two-operand instructions with implicit
-source and destination)? And can I get the compiler to self-compile on
-both architectures?
+所以现在完整的目标其实是：
+我能不能拿编译器解析器生成出来的抽象语法树（AST），
+分别生成两种完全不同架构的代码：
+QBE
+（更像 RISC，三操作数指令）
+和 6809
+（本质上只有一个寄存器，两操作数且源/目标常常是隐含的）？
+并且，
+还能让编译器在这两种架构上都实现自编译？
 
-This is going to be an interesting journey!
+这会是一趟很有意思的旅程。
 
-## The Code Generator Contract
+## 代码生成器契约
 
-Now that we are going to have two different backends, we need a "contract"
-or API between the architecture-independent part of the code generator
-([gen.c](gen.c)) and each architecture-dependent part. This is now the
-list of functions defined in [gen.h](gen.h).
+既然现在要有两个不同后端，
+那我们就需要在
+架构无关的代码生成部分
+（[gen.c](gen.c)）
+和各个架构相关后端之间，
+定义一个“契约”，
+或者说 API。
+这个接口现在定义在 [gen.h](gen.h)
+里。
 
-The basic API is the same as before. We pass in one or more "register numbers"
-and get back a register number that holds the result. One difference this
-time is that many of the functions receive the architecture-independent `type`
-of the operands; this is defined in [defs.h](defs.h):
+基础 API 和以前差不多：
+我们传入一个或多个“寄存器编号”，
+再拿回一个持有结果值的寄存器编号。
+不过这次有个变化：
+很多函数现在还会额外接收操作数的
+架构无关 `type`。
+这些类型定义在 [defs.h](defs.h)
+里：
 
 ```
 // Primitive types. The bottom 4 bits is an integer
@@ -156,23 +236,34 @@ enum {
 };
 ```
 
-If you look at the QBE code generator in [cgqbe.c](cgqbe.c), it is
-pretty much the same as in the last chapter in this "acwj" journey.
-One thing to note is that I've abstracted a few of the functions into
-a separate file, [targqbe.c](targqbe.c), as the parser and code
-generator now live in different programs.
+如果你去看 QBE 代码生成器
+[cgqbe.c](cgqbe.c)，
+会发现它和上一章 “acwj” 旅程里的版本差别并不大。
+有件事需要注意：
+我把其中一些函数抽取到了单独的
+[targqbe.c](targqbe.c)
+里，
+因为现在解析器和代码生成器
+已经不再是同一个程序了。
 
-Now let's look at the 6809 code generator.
+接下来我们看 6809 代码生成器。
 
-## 6809-Specific Types and the D Register
+## 6809 专用类型和 D 寄存器
 
-The big problem is how to have the idea of multiple registers on the 6809.
-I'll cover that in the next section, but I need to take a short detour
-first.
+真正的大问题是：
+在 6809 上，
+我们到底怎样保留“多个寄存器”这种抽象？
+这个问题我下一节再讲，
+不过前面需要先绕一小段。
 
-Each architecture-dependent code generator gets given the type of
-operands: P_CHAR, P_INT etc. For the 6809 code generator, we convert
-these into 6809-specific types, as defined in [cg6809.c](cg6809.c):
+每个架构相关代码生成器，
+拿到的都是通用类型：
+`P_CHAR`、`P_INT`
+等等。
+对于 6809 后端来说，
+我们会先把它们转换成 6809 自己的类型系统，
+定义在 [cg6809.c](cg6809.c)
+里：
 
 ```
 #define PR_CHAR         1	// size 1 byte
@@ -181,7 +272,7 @@ these into 6809-specific types, as defined in [cg6809.c](cg6809.c):
 #define PR_LONG         4	// size 4 bytes
 ```
 
-In this file, you will see a lot of this sort of code:
+于是你会在这个文件里经常看到类似这样的代码：
 
 ```
   int primtype= cgprimtype(type);
@@ -197,21 +288,36 @@ In this file, you will see a lot of this sort of code:
   }
 ```
 
-Even though `PR_INT` and `PR_POINTER` are the same size and generate the same
-code, I've kept the ideas separate. That's because pointers are really
-unsigned whereas `int`s are signed. Later on, if I get to adding signed and
-unsigned types to the compiler, I already have a head start here in the
-6809 backend.
+虽然 `PR_INT`
+和 `PR_POINTER`
+大小相同，
+而且生成出来的代码也一样，
+我还是故意把它们区分开了。
+原因是：
+指针本质上应该看作无符号值，
+而 `int`
+则是有符号值。
+以后如果我真要给编译器加入 signed/unsigned
+类型，
+那 6809 后端这一层至少已经先铺好路了。
 
-## How Registers When No Registers?
+## 当没有寄存器时，寄存器怎么办
 
-Now, back to the main problem:
-if the code generator API uses register numbers, how do we write a
-6809 backend when this CPU only has a single accumulator, `D`?
+现在回到核心问题：
+如果代码生成器 API
+是建立在“寄存器编号”之上的，
+那在只有一个累加器 `D`
+的 6809 上，
+我们到底怎么写后端？
 
-When I began writing the 6809 backend, I started with a set of
-4-byte memory locations called `R0, R1, R2` etc. You can still see
-them in [lib/6809/crt0.s](lib/6809/crt0.s):
+我刚开始写 6809 后端时，
+最直接的做法是：
+搞一组 4 字节的内存位置，
+名字就叫 `R0`、`R1`、`R2`
+等等。
+你现在还能在
+[lib/6809/crt0.s](lib/6809/crt0.s)
+里看到它们：
 
 ```
 R0:     .word   0
@@ -221,8 +327,9 @@ R1:     .word   0
 ...
 ```
 
-This helped me get the 6809 backend up and running, but the code
-generated was awful. For example, this C code:
+这套办法确实让我把 6809 后端先跑起来了，
+但生成出来的代码糟透了。
+比如这段 C 代码：
 
 ```
   int x, y, z;
@@ -230,7 +337,7 @@ generated was awful. For example, this C code:
   z= x + y;
 ```
 
-gets translated to:
+会被翻译成：
 
 ```
   ldd  _x
@@ -244,11 +351,18 @@ gets translated to:
   std  _z
 ```
 
-Then I realised: the 6809 is very "address"-oriented: there are a bunch
-of addressing modes, and most instructions have an address (or a literal)
-as an operand. So, let's keep a list of "_locations_".
+后来我意识到：
+6809 是一颗非常“面向地址”的 CPU。
+它有很多寻址模式，
+而大多数指令的操作数本质上也是“一个地址”
+或者“一个字面量”。
+所以，
+与其坚持“寄存器列表”，
+不如改成维护一份“位置（locations）”列表。
 
-A location is one of the following, defined in [cg6809.c](cg6809.c):
+一个位置可以是下面这些类型之一，
+定义在 [cg6809.c](cg6809.c)
+里：
 
 ```
 enum {
@@ -263,7 +377,8 @@ enum {
 };
 ```
 
-and we keep a list of free or in-use locations which have this structure:
+然后我们维护一张“空闲/在用位置表”，
+每个元素结构如下：
 
 ```
 struct Location {
@@ -274,29 +389,53 @@ struct Location {
 };
 ```
 
-Examples:
+举几个例子：
 
- - a global `int x` would be an L_SYMBOL with `name` set to "x" and
-   `primtype` set to PR_INT.
- - a local `char *ptr` would be an L_LOCAL with no name, but the
-   `intval` would be set to its offset in the stack frame, e.g. -8.
-   `primtype` would be PR_POINTER.
-   If it were a function parameter, the offset would be positive.
- - if the operand was something like `&x` (the address of `x`),
-   then the location would be an L_SYMADDR with `name` set to "x".
- - a literal value like 456 would be an L_CONST with the `intval`
-   set to 456 and `primtype` set to PR_INT.
- - finally, if the operand is already in the `D` register, we
-   would have an L_DREG location with a certain PR_ type.
+ - 一个全局 `int x`
+   会被表示成 `L_SYMBOL`，
+   `name`
+   是 `"x"`，
+   `primtype`
+   是 `PR_INT`。
+ - 一个局部 `char *ptr`
+   会被表示成 `L_LOCAL`，
+   没有名字，
+   但 `intval`
+   会记录它在栈帧中的偏移，
+   比如 `-8`。
+   `primtype`
+   则是 `PR_POINTER`。
+   如果它是函数参数，
+   偏移量就会是正数。
+ - 如果操作数是 `&x`
+   这种“取地址”表达式，
+   那位置就会是 `L_SYMADDR`，
+   `name`
+   为 `"x"`。
+ - 一个像 456 这样的字面量值，
+   会是 `L_CONST`，
+   `intval`
+   为 456，
+   `primtype`
+   为 `PR_INT`。
+ - 如果操作数当前已经在 `D`
+   寄存器里，
+   那它就是一个 `L_DREG`
+   位置，
+   并带有相应的 `PR_`
+   类型。
 
-So, locations stand in for registers. We have an array of 16 locations:
+也就是说，
+“位置”
+在这里其实扮演了“寄存器”的角色。
+我们总共准备了 16 个位置：
 
 ```
 #define NUMFREELOCNS 16
 static struct Location Locn[NUMFREELOCNS];
 ```
 
-Let's take a look at the code to generate addition on the 6809.
+来看看 6809 上生成加法的代码：
 
 ```
 // Add two locations together and return
@@ -327,16 +466,30 @@ int cgadd(int l1, int l2, int type) {
 }
 ```
 
-We first determine the 6809 type from the generic operand type.
-Then we load the value from the first location `l1` into the `D` register.
-Then, based on the 6809 type, we output the right set of instructions
-and print the second location `l2` after each instruction.
+我们先根据通用类型，
+推导出 6809 对应的专用类型。
+然后把第一个位置 `l1`
+的值加载进 `D`
+寄存器。
+接着，
+根据 6809 类型的不同，
+输出不同的指令，
+并在每条指令后把第二个位置 `l2`
+打印出来作为操作数。
 
-Once the addition is done, we free the second location and mark
-that the first location `l1` is now the `D` register. We also note
-that `D` is now in-use before returning.
+加法完成后，
+我们释放第二个位置，
+并把第一个位置 `l1`
+标记为 `L_DREG`，
+表示它现在已经住进 `D`
+寄存器里了。
+同时也记下 `D`
+当前正被占用，
+然后返回。
 
-Using the idea of locations, the C code `z= x + y` now gets translated to:
+借助“位置”这个抽象，
+C 代码 `z= x + y`
+现在就会被翻译成：
 
 ```
   ldd  _x	; i.e. load_x(l1);
@@ -344,29 +497,53 @@ Using the idea of locations, the C code `z= x + y` now gets translated to:
   std  _z	; performed in another function, cgstorglob()
 ```
 
-## Dealing with Longs
+## 处理 `long`
 
-The 6809 has 8-bit and 16-bit operations, but the compiler needs to
-synthesize operations on 32-bit longs. Also, there is no 32-bit register.
+6809 只有 8 位和 16 位运算，
+但编译器需要合成 32 位 `long`
+运算。
+同时，
+它也没有 32 位寄存器。
 
-> Aside: the 6809 is big-endian. If the `long` value of 0x12345678
-> was stored in a `long` variable named `foo`, then 0x12 would be
-> at `foo` offset 0, 0x34 at `foo` offset 1, 0x56 at `foo` offset
-> 2 and 0x78 at `foo` offset 3.
+> 题外话：6809 是大端序。
+> 如果某个 `long` 值 `0x12345678`
+> 存在名为 `foo`
+> 的 `long`
+> 变量中，
+> 那么 `foo+0`
+> 处是 `0x12`，
+> `foo+1`
+> 处是 `0x34`，
+> `foo+2`
+> 处是 `0x56`，
+> `foo+3`
+> 处是 `0x78`。
 
-I've borrowed the idea for longs that Alan Cox uses in the
-[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit).
-We use the `Y` register to hold the top-half of a 32-bit long with the
-`D` register holding the lower half:
+这里我借用了 Alan Cox 在
+[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)
+里的思路。
+我们用 `Y`
+寄存器保存 32 位 `long`
+的高半部分，
+而 `D`
+寄存器保存低半部分：
 
 ![](docs/long_regs.png)
 
-The 6809 already calls the lower half of the `D` register the `B`
-register, used for 8-bit operations. And there is the `A` register
-which is the top half of the `D` register.
+6809 原本就把 `D`
+寄存器的低半部分称为 `B`，
+用于 8 位操作；
+而 `A`
+则是 `D`
+的高半部分。
 
-Looking at the above `cgadd()` code, you can see that, if `x`, `y`
-and `z` were `long`s not `int`s, we would generate:
+看看前面 `cgadd()`
+里处理 `long`
+的分支，
+如果 `x`、`y` 和 `z`
+都是 `long`
+而不是 `int`，
+那它会生成：
 
 ```
   ldd  _x+2	; Get lower half of _x into D
@@ -380,17 +557,23 @@ and `z` were `long`s not `int`s, we would generate:
   sty  _z	; and Y (the upper half) in _z offset 0
 ```
 
-It's a bit of a pain: there is a 16-bit `addd` operation with no carry
-but there is no 16-bit addition operation with carry. Instead, we have to
-perform two 8-bit additions with carry to get the same result.
+这确实有点麻烦：
+6809 有 16 位 `addd`，
+但它没有带进位的 16 位加法。
+所以我们只能退回去，
+用两次 8 位带进位加法，
+拼出同样的结果。
 
-This inconsistency with the available 6809 operations
-makes the 6809 code generator code annoyingly ugly in places.
+也正是这种“指令集能力不整齐”的现实，
+让 [cg6809.c](cg6809.c)
+里的很多代码看起来都不太优雅。
 
-# printlocation()
+# `printlocation()`
 
-A lot of the work in handling locations is performed by the `printlocation()`
-function. Let's break it down into a few stages.
+位置系统里，
+很多活都是由 `printlocation()`
+完成的。
+我们分几段来看。
 
 ```
 // Print a location out. For memory locations
@@ -414,75 +597,125 @@ static void printlocation(int l, int offset, char rletter) {
     ...
 ```
 
-If the location is L_FREE, then there is no point in trying to print it!
-For symbols, we print out the symbol's name followed by the offset.
-That way, for `int`s and `long`s, we can get access to all 2 or 4 bytes
-that make up the symbol: `_x+0`, `_x+1`, `_x+2`, `_x+3`.
+如果位置是 `L_FREE`，
+那当然没意义再去打印它。
 
-For locals and function parameters, we print out the position in the
-stack frame (i.e. `intval` with the offset added on). So if a local
-`long` variable `fred` is on the stack at position -12, we can get
-access to all four bytes with `-12,s`, `-11,s`, `-10,s`, `-9,s`.
+对于符号，
+我们输出符号名和偏移量。
+这样一来，
+对于 `int`
+和 `long`，
+就能访问组成它们的 2 个或 4 个字节：
+比如 `_x+0`、`_x+1`、`_x+2`、`_x+3`。
 
-Yes, there is something called `sp_adjust` here. I'll talk about that soon!
+对于局部变量和函数参数，
+我们输出它在栈帧中的位置
+（也就是 `intval`
+加上偏移）。
+如果局部 `long`
+变量 `fred`
+位于栈上 `-12`
+的位置，
+那我们就可以通过 `-12,s`、
+`-11,s`、
+`-10,s`、
+`-9,s`
+访问到它的全部四个字节。
 
-Now, L_TEMP locations. As with all previous versions of the compiler,
-sometimes we have to store intermediate results somewhere, e.g.
+没错，
+这里出现了一个叫 `sp_adjust`
+的东西。
+我马上就会说到它。
+
+至于 `L_TEMP`。
+和之前所有版本的编译器一样，
+有些时候我们必须把中间结果暂存到某个地方，
+比如：
 
 ```
   int z= (a + b) * (c - d) / (e + f) * (g + h - i) * (q - 3);
 ```
 
-We have five intermediate results in parentheses which we need
-before we can do the multiplies and divides. Well, those original
-pretend registers R0, R1, R2 ... become useful now! When I need
-temporary storage for intermediate results, I just allocate these
-locations and store the intermediate results here. There are functions
-`cgalloctemp()` and `cgfreealltemps()` in [cg6809.c](cg6809.c) to do this.
+这里括号里一共有五个中间结果，
+必须先保存起来，
+才能继续做乘除运算。
+而最早那套假寄存器 `R0`、`R1`、`R2`
+这时就又有用了！
+当我需要一个地方保存中间结果时，
+就分配一个这样的 `L_TEMP`
+位置，
+然后把值存进去。
+在 [cg6809.c](cg6809.c)
+中有 `cgalloctemp()`
+和 `cgfreealltemps()`
+两个函数负责这件事。
 
-# printlocation() and Literal Values
+# `printlocation()` 和字面量
 
-For most locations, we can simply print out the location's name or
-position on the stack, plus the offset we need. The code generator
-has already printed out the instruction to run, so:
+对于大多数位置，
+我们只要直接打印出它的名字，
+或者它在栈上的位置，
+再加上偏移量就可以了。
+代码生成器前面已经把要执行的指令打印出来了，
+因此例如：
 
 ```
   ldb _x+0	; Will load one byte from _x into B
   ldd _x+0	; Will load two bytes from _x into D
 ```
 
-But for literal values, e.g. 0x12345678, do we need to print out
-the 0x78 on the end, or perhaps the 0x5678? Or do we need (in the
-addition code), access to the 0x34 and also the 0x12?
+但如果是字面量值，
+比如 `0x12345678`，
+那该怎么打印？
+末尾只打印 `0x78`
+吗？
+还是要打印 `0x5678`？
+又或者像加法那样，
+我们需要分别访问 `0x34`
+和 `0x12`？
 
-That is why there is the `rletter` parameter to `printlocation()`:
+这就是 `printlocation()`
+为什么还需要 `rletter`
+参数：
 
 ```
 static void printlocation(int l, int offset, char rletter);
 ```
 
-When we are printing out literals, we use this to choose which
-part and how much of the literal value. I've chosen values that
-reflect the 6809's register names, but I also made a few up. For
-literal 0x12345678:
+在处理字面量时，
+我们用这个参数来决定
+到底输出哪一部分、
+以及输出多宽。
+我选用的这些字母大多对应 6809 的寄存器名，
+也有少数是我自己补出来的。
+以字面量 `0x12345678`
+为例：
 
- - 'b' prints out the 0x78 part
- - 'a' prints out the 0x56 part
- - 'd' prints out the 0x5678 part
- - 'y' prints out the 0x1234 part
- - 'f' prints out the 0x34 part
- - 'e' prints out the 0x12 part
+ - `'b'` 输出 `0x78`
+ - `'a'` 输出 `0x56`
+ - `'d'` 输出 `0x5678`
+ - `'y'` 输出 `0x1234`
+ - `'f'` 输出 `0x34`
+ - `'e'` 输出 `0x12`
 
-## Helper Functions
+## 辅助函数
 
-There are several operations which the compiler needs to perform
-but which the 6809 has no instruction: multiplication,
-division, shifts by multiple bits etc.
+编译器有一些必须做的操作，
+而 6809 本身并没有对应指令：
+例如乘法、
+除法、
+多位移位等等。
 
-To solve this problem, I've borrowed several of the helper functions from the
-[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit).
-They are in the archive file `lib/6809/lib6809.a`. The function
-`cgbinhelper()` in [cg6809.c](cg6809.c):
+为了解决这个问题，
+我借用了
+[Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)
+里的若干辅助函数。
+它们都放在归档库
+`lib/6809/lib6809.a`
+里。
+[cg6809.c](cg6809.c)
+中的 `cgbinhelper()`
+函数：
 
 ```
 // Run a helper subroutine on two locations
@@ -491,10 +724,17 @@ static int cgbinhelper(int l1, int l2, int type,
                                 char *cop, char *iop, char *lop);
 ```
 
-gets the value from the two locations `l1` and `l2`, pushes them on
-the stack and then calls one of the three char/int/long helper functions
-with names in `cop`, `iop` and `lop`. Thus, the function in the code
-generator to do multiplication is simply:
+会先把位置 `l1`
+和 `l2`
+的值取出来压栈，
+然后根据类型，
+去调用 `cop`、`iop`
+和 `lop`
+里给出的对应 char/int/long
+辅助函数。
+因此，
+代码生成器里处理乘法的函数，
+就可以简单写成：
 
 ```
 // Multiply two locations together and return
@@ -504,17 +744,20 @@ int cgmul(int r1, int r2, int type) {
 }
 ```
 
-# Tracking Positions of Locals and Parameters
+# 跟踪局部变量和参数的位置
 
-A function's local variables or parameters are kept on the stack, and
-we access them by using their offset relative to the stack pointer, e.g.
+函数的局部变量和参数都存放在栈上，
+我们通过“相对于栈指针的偏移量”访问它们，
+例如：
 
 ```
   ldd -12,s     ; Load the local integer variable which is 12 bytes
                 ; below the stack pointer
 ```
 
-But there's a problem. What if the stack pointer moves? Consider the code:
+但这里有个问题：
+如果栈指针自己动了怎么办？
+看这段代码：
 
 ```
 int main() {
@@ -526,9 +769,18 @@ int main() {
 
 ```
 
-`x` might be at offset 0 relative to the stack pointer. But when we call
-`printf()`, we push a copy of `x` on the stack. Now the real `x` is at
-position 2 etc. So we actually have to generate the code:
+假设 `x`
+最初位于相对于栈指针偏移 0 的位置。
+可当我们调用 `printf()`
+时，
+会把 `x`
+的多个副本压栈作为参数。
+这时真正的 `x`
+就不再在 0，
+而是跑到了 2、
+4
+等等位置。
+因此我们实际上必须生成这样的代码：
 
 ```
   ldd 0,s	; Get x's value
@@ -543,11 +795,18 @@ position 2 etc. So we actually have to generate the code:
   leas 8,s	; Pull the 8 bytes of arguments off the stack
 ```
 
-How do we track what the current offset of locals and parameters are?
-The answer is the `sp_adjust` variable in [cg6809.c](cg6809.c). Each
-time we push something on the stack, we add the number of bytes pushed
-to `sp_adjust`. Similarly, when we pull from the stack or move the
-stack pointer up, we subtract that amount from `sp_adjust`. Example:
+那我们到底怎么跟踪
+“当前局部变量和参数的真实偏移”？
+答案是 [cg6809.c](cg6809.c)
+里的 `sp_adjust`
+变量。
+每次我们往栈上压入东西，
+就把压入的字节数加到 `sp_adjust`
+里；
+每次出栈，
+或者通过移动栈指针把栈往上收回去，
+就把对应字节数减掉。
+例如：
 
 ```
 // Push a location on the stack
@@ -566,15 +825,17 @@ static void pushlocn(int l) {
 }
 ```
 
-And in `printlocation()` when we print out locals and parameters:
+而在 `printlocation()`
+里打印局部变量和参数时：
 
 ```
     case L_LOCAL: fprintf(Outfile, "%ld,s\n",
                 Locn[l].intval + offset + sp_adjust);
 ```
 
-There is also a bit of error checking when we get to the end of
-generating a function's assembly code:
+另外，
+在生成某个函数汇编的末尾，
+还有一点额外检查：
 
 ```
 // Print out a function postamble
@@ -587,132 +848,201 @@ void cgfuncpostamble(struct symtable *sym) {
 }
 ```
 
-That's about all I want to cover in terms of 6809 assembly code generation.
-Yes, the code in [cg6809.c](cg6809.c) has to deal with the vagaries of the
-6809 instruction set, which is why [cg6809.c](cg6809.c) is so much bigger
-than [cgqbe.c](cgqbe.c). But I (hope I) have put enough comments in
-[cg6809.c](cg6809.c) so that you can follow along and understand what it
-is doing.
+关于 6809 汇编代码生成，
+我大致就讲到这里。
+没错，
+[cg6809.c](cg6809.c)
+必须处理 6809 指令集的各种古怪之处，
+这也是它会比 [cgqbe.c](cgqbe.c)
+大得多的原因。
+不过我 *希望* 自己已经在 [cg6809.c](cg6809.c)
+里写了足够多的注释，
+让你能跟着看懂它到底在做什么。
 
-There are a few tricky things like tracking when the `D` register is
-in-use or free, and I'm sure I still haven't quite got the synthesis of
-all the `long` operations right.
+其中确实还有几件比较棘手的小事，
+比如跟踪 `D`
+寄存器现在是空闲还是在用，
+以及 `long`
+相关那一整套合成运算我也不敢说完全没有遗漏。
 
-Now we need to cover a much bigger topic, that of
-the 6809's 64K address limitation.
+接下来我们得进入一个更大的话题：
+6809 那个 64K 地址空间限制。
 
-## Fitting a Compiler into 65,536 Bytes
+## 怎样把编译器塞进 65,536 字节
 
-The original "acwj" compiler was a single executable. It read from the
-C pre-processor's output, did the scanning, parsing and code generation,
-outputting assembly code. It kept the symbol table and the AST tree
-for each function in memory, and never bothered to free data structures
-once they were used.
+最初的 “acwj” 编译器是一个单体可执行文件。
+它读取 C 预处理器的输出，
+完成扫描、
+解析
+和代码生成，
+最后直接输出汇编。
+它会把符号表、
+每个函数的 AST 树
+都放在内存里，
+而且一旦某个数据结构创建出来，
+基本从不考虑释放。
 
-None of this is going to help fit the compiler into 64K of memory!
-So, my approach for 6809 self-compilation was to:
+这一整套做法，
+显然不可能让编译器塞进 64K 内存！
+所以在 6809 自编译这件事上，
+我的办法是：
 
-1. Break the compiler up into a number of phases. Each phase
-   does one part of the overall compilation task, and the
-   phases use intermediate files to communicate.
-2. Keep as little of the symbol table and AST trees in memory
-   as we can get away with. Instead, these are kept in files
-   and we have functions to read/write them as required.
-3. Try to garbage collect unused data structures with `free()`
-   wherever we can.
+1. 把编译器拆成多个阶段，
+   每个阶段只做整个编译任务中的一小部分，
+   阶段之间通过中间文件通信。
+2. 尽量少地把符号表和 AST 树留在内存中。
+   它们更多地放到文件里，
+   需要时再读写。
+3. 尽可能使用 `free()`
+   对不用的数据结构做垃圾回收。
 
-Let's look at all three in turn.
+下面分别来看。
 
-## The Seven Compiler Phases
+## 编译器的七个阶段
 
-The compiler is now arranged to have seven phases, each one with
-its own executable:
+现在编译器被拆成七个阶段，
+每个阶段都有自己的可执行程序：
 
-1. An external C pre-processor interprets #include, #ifdef
-   and the pre-processor macros.
-2. The lexer reads the pre-processor output and produces a
-   token stream.
-3. The parser reads the token stream and creates
-   a symbol table plus a set of AST trees.
-4. The code generator uses the AST trees and
-   the symbol table and generates assembly code.
-5. An external peephole optimiser improves the assembly code.
-6. An external assembler produces object files.
-7. An external linker takes `crt0.o`, the object files and
-   several libraries and produces a final executable.
+1. 外部 C 预处理器负责解释 `#include`、`#ifdef`
+   和预处理器宏。
+2. 词法分析器读取预处理器输出，
+   产生 token 流。
+3. 解析器读取 token 流，
+   构建符号表和 AST 树集合。
+4. 代码生成器利用 AST 树和符号表生成汇编代码。
+5. 外部 peephole 优化器改进汇编输出。
+6. 外部汇编器生成目标文件。
+7. 外部链接器把 `crt0.o`、各目标文件
+   以及若干库链接成最终可执行文件。
 
-We now have a frontend program [wcc.c](wcc.c) that co-ordinates all
-the phases. The lexer is the program called `cscan`. The parser is
-`cparse6809` or `cparseqbe`. The code generator is `cgen6809` or
-`cgenqbe`, and the peephole optimiser is `cpeep`. All of these
-(via `make install`) get installed in `/opt/wcc/bin`.
+现在我们有一个前端程序 [wcc.c](wcc.c)
+来协调整个流程。
+词法分析器是 `cscan`。
+解析器是 `cparse6809`
+或 `cparseqbe`。
+代码生成器是 `cgen6809`
+或 `cgenqbe`。
+peephole 优化器是 `cpeep`。
+这些程序在执行 `make install`
+后都会安装到 `/opt/wcc/bin`
+下。
 
-It's understandable that there are two code generators, but why are
-there two parsers? The answer is that `sizeof(int)`, `sizeof(long)`
-etc. are different on each architecture, so the parser needs to
-have this information as well as the code generator. Hence the
-files [targ6809.c](targ6809.c) and [targqbe.c](targqbe.c) which
-get compiled into the parsers and the code generators.
+代码生成器分成两个版本很容易理解，
+但为什么解析器也要两个？
+原因是：
+不同架构下，
+`sizeof(int)`、
+`sizeof(long)`
+之类的值并不相同，
+解析器在做类型处理时也必须知道这些信息。
+因此才有了
+[targ6809.c](targ6809.c)
+和 [targqbe.c](targqbe.c)
+这两个文件，
+它们会分别被编译进解析器和代码生成器中。
 
-> Aside: the 6809 has a peephole optimiser. The QBE backend uses
-> the `qbe` program to convert QBE code to x64 code. I guess that's
-> also a form of optimisation :-)
+> 顺带一提：6809 后端有自己的 peephole 优化器。
+> 而 QBE 后端则借助 `qbe`
+> 程序把 QBE 代码转成 x64 代码。
+> 这也算是一种优化吧 :-)
 
-## Intermediate Files
+## 中间文件
 
-Between all of these seven phases, we need intermediate files to
-hold the phases' outputs. Normally they get deleted at the end of
-compilation, but you can keep them if you use the `-X` command-line
-flag with `wcc`.
+在这七个阶段之间，
+我们需要中间文件来承接上一个阶段的输出。
+通常这些中间文件会在编译结束后被删掉；
+如果你用 `wcc`
+的 `-X`
+命令行参数，
+就可以保留它们。
 
-The C pre-processor's output is stored in a temporary file ending
-with `_cpp`, e.g. `foo.c_cpp` if we are compiling `fred.c`.
+C 预处理器的输出会放到一个以 `_cpp`
+结尾的临时文件里，
+例如如果正在编译 `fred.c`，
+那中间文件名可能是 `foo.c_cpp`。
 
-The tokeniser's output is stored in a temporary file ending
-with `_tok`. We have a program called [detok.c](detok.c) which you
-can use to dump a token file into readable format.
+tokeniser 的输出会写到一个以 `_tok`
+结尾的临时文件中。
+我们有一个叫 [detok.c](detok.c)
+的程序，
+可以把 token 文件转储成可读形式。
 
-The parser produces a symbol table file ending with `_sym` and
-a set of AST trees that get stored in a file ending with `_ast`.
-We have programs [desym.c](desym.c) and [detree.c](detree.c)
-to dump the symbol table and AST tree files.
+解析器会输出一个以 `_sym`
+结尾的符号表文件，
+以及一个以 `_ast`
+结尾的 AST 文件。
+我们也有 [desym.c](desym.c)
+和 [detree.c](detree.c)
+这两个程序，
+用于转储符号表和 AST 文件。
 
-Regardless of the CPU, the code generator always outputs
-unoptimised assembly code in a file ending with `_qbe`.
-This gets read by either `qbe` or `cpeep` to produce the
-optimised assembly code in a temporary file that ends in `_s`.
+不管目标 CPU 是什么，
+代码生成器一律先输出未优化的汇编代码，
+文件名以 `_qbe`
+结尾。
+然后这个文件会被 `qbe`
+或 `cpeep`
+读取，
+生成优化后的汇编临时文件，
+文件名以 `_s`
+结尾。
 
-The assembler then assembles this file to produce object files
-ending in `.o`, which are then linked by the linker to produce
-the final executable file.
+接下来，
+汇编器把这个文件汇编成 `.o`
+目标文件，
+链接器再把它们链接成最终可执行文件。
 
-Like other compilers, `wcc` has the `-S` flag to output assembly
-to a file ending with `.s` (and then stop), and the `-c` flag
-to output object files and then stop.
+和其他编译器一样，
+`wcc`
+也支持 `-S`
+参数，
+用于输出以 `.s`
+结尾的汇编文件然后停止；
+也支持 `-c`
+参数，
+用于输出目标文件然后停止。
 
-## Format of the Symbol Table and AST files
+## 符号表和 AST 文件格式
 
-I took a simple approach for these files which I'm sure could be
-improved. I simply write each `struct symtable` and `struct ASTnode`
-nodes (see [defs.h](defs.h)) directly to the files using `fwrite()`.
+这些文件的实现方式我采取了一个非常直接的办法，
+虽然肯定还有改进空间。
+我就是把每个 `struct symtable`
+和 `struct ASTnode`
+节点
+（定义在 [defs.h](defs.h)）
+直接用 `fwrite()`
+原样写到文件里。
 
-Many of these have an associated string: symbol names, for example,
-and AST nodes that hold string literals. For these I just `fwrite()`
-out the string including the NUL byte at the end.
+其中很多节点会附带字符串：
+例如符号名，
+或者保存字符串字面量的 AST 节点。
+对于这类情况，
+我就再额外把字符串连同末尾的 NUL
+一起 `fwrite()`
+出去。
 
-Reading the nodes back in is simple: I just `fread()` the size of
-each struct. But then I have to read back in the NUL-terminated
-string if there is one. There isn't a good C library function to do
-this, so in [misc.c](misc.c) there is a function called `fgetstr()` to
-do this.
+读回来也很直接：
+先 `fread()`
+一个对应大小的 struct。
+不过如果节点带字符串，
+还得继续把那个以 NUL 结尾的字符串读回来。
+C 标准库里没有特别顺手的函数干这件事，
+所以在 [misc.c](misc.c)
+里我写了一个 `fgetstr()`
+专门处理它。
 
-One problem with dumping in-memory structures out to disk is that
-the pointers in the structures lose their meaning: when the structure
-is reloaded, it's going to end up in another part of memory. Any 
-pointer value becomes invalid.
+把内存结构直接 dump 到磁盘有个明显问题：
+结构体中的指针一旦写到磁盘，
+它们原本的意义就没了。
+等结构体重新加载进来时，
+肯定会处在另一块内存区域，
+所有原始指针值都会失效。
 
-To solve this, both the symbol table structure and the ASTnode structure
-now have numeric ids, both for the node itself and the nodes it points to.
+为了解决这个问题，
+符号表结构和 AST 节点结构
+现在都增加了数字 id，
+不仅给自己编号，
+也给自己指向的节点留出对应编号字段。
 
 ```
 // Symbol table structure
@@ -738,33 +1068,46 @@ struct ASTnode {
 };
 ```
 
-The reading-in code for both is tricky as we have to find and reattach
-nodes. The bigger question is: how much of each file do we bring in
-and keep in memory?
+读回来时的麻烦就在于：
+我们必须根据这些 id
+重新找到并挂接节点。
+更大的问题则是：
+这些文件里到底应该读多少到内存里，
+又应该在内存里保留多久？
 
-## Structures In-Memory vs. On-Disk
+## 结构体：留在内存还是放在磁盘上
 
-The tension here is that, if we keep too many symbol table and AST nodes
-in memory, we will run out of memory. But if we put them out into files
-then we might have to do a lot of file read/write operations when we
-need access to the nodes.
+这里的矛盾很明显：
+如果我们在内存里保留太多符号表节点和 AST 节点，
+就会直接把内存耗尽；
+但如果都丢到文件里，
+又会在访问时产生大量文件读写。
 
-As with most problems of this type, we just choose one heuristic that does
-a good enough job. One extra constraint here is that we might choose
-a heuristic which does a great job, but it requires a lot of code which
-itself puts pressure on available memory.
+这种问题通常也没有完美解，
+往往就是选一个“足够好”的启发式方案。
+还有一个额外限制：
+即便某个启发式策略效果不错，
+它本身如果需要很多实现代码，
+那又会反过来进一步挤压本就紧张的内存。
 
-So, here is what I've chosen. It can be replaced, but it's what I've got
-for now.
+所以，
+我最后选了一套先能工作的办法。
+它当然不是唯一选择，
+但至少这是我目前手里这套。
 
-## Writing Symbol Table Nodes
+## 写出符号表节点
 
-The parse phase finds symbols and determines their type etc. So it is
-responsible for writing the symbols to a file.
+解析阶段负责发现符号、
+确定其类型等信息，
+所以也自然由解析器负责把符号写到文件里。
 
-One big change in the compiler is that there is now only a single symbol
-table, not a set of tables. Each symbol in the unified table now has
-a structural type and a visibility (in [defs.h](defs.h)):
+编译器这里还有一个大的变化：
+现在不再是一堆分散的符号表，
+而是只保留一个统一符号表。
+表中的每个符号现在都带有结构类型
+和可见性类别，
+定义在 [defs.h](defs.h)
+里：
 
 ```
 // A symbol in the symbol table is
@@ -785,44 +1128,85 @@ enum {
 };
 ```
 
-OK, so I lied a little bit :-) There are actually three symbol tables:
-one for generic symbols, one for types (structs, unions, enums, typedefs)
-and a temporary one which is used to build the member list for
-structs, unions and functions.
+好吧，
+我稍微撒了个小谎 :-)
+实际上还是有三张符号表：
+一张放普通符号，
+一张放类型
+（struct、union、enum、typedef），
+以及一张临时表，
+专门用来构建 struct、union
+和函数的成员列表。
 
-In [sym.c](sym.c), the `serialiseSym()` function writes a symbol table
-node and any associated string out to the file. One optimisation is
-that, as nodes are given montonically increasing ids, we can record
-the highest symbol id we have already written out, and not (re)write
-symbols at or below this id.
+在 [sym.c](sym.c)
+里，
+`serialiseSym()`
+会把一个符号节点以及它关联的字符串写到文件里。
+这里有个小优化：
+因为节点 id
+是单调递增分配的，
+所以我们可以记住“已经写出过的最大符号 id”，
+对于不大于这个 id
+的节点，
+就不用反复重写。
 
-The function `flushSymtable()` in the same file walks the type list and
-the generic symbol list and calls `serialiseSym()` to write each node out.
+同文件里的 `flushSymtable()`
+会遍历类型列表和普通符号列表，
+对每个节点调用 `serialiseSym()`。
 
-In the same file, `freeSym()` frees the memory that a symbol entry
-occupies. This is the node itself, any associated name and also
-any initialisation list (i.e. for global symbols, e.g. `int x= 27;`).
-Symbols like structs, unions and functions also have a list of member
-symbols - the fields in structs and unions, and the locals and parameters
-of a function. These also get freed.
+另外，
+[sym.c](sym.c)
+里的 `freeSym()`
+负责释放一个符号项占用的内存：
+包括节点本身、
+名字、
+以及初始化列表
+（比如全局变量 `int x= 27;`
+这种）。
+像 struct、union、
+函数这类符号，
+还会带自己的成员列表：
+struct/union
+的字段，
+以及函数的局部变量和参数，
+这些也都一并释放。
 
-The function `freeSymtable()` in [sym.c](sym.c) walks these lists
-and calls `freeSym()` to free each node.
+[sym.c](sym.c)
+中的 `freeSymtable()`
+会遍历这些链表，
+并调用 `freeSym()`
+逐个释放。
 
-Now, the question is: when is it safe to flush and free the symbol table
-in the parser? The answer is: we can flush the symbol table out after
-each function. But we can't free the symbol table, as the parser needs
-to look up pre-defined types and pre-defined symbols, e.g.
+那么问题来了：
+在解析器里，
+什么时候才可以安全地 flush
+并 free
+符号表？
+答案是：
+每个函数结束后，
+我们可以把符号表 flush
+到磁盘；
+但不能把整个表都 free
+掉，
+因为解析器后面仍然需要查找预定义类型和预定义符号。
+例如：
 
 ```
   z= x + y;
 ```
 
-What types do these have, and are they compatible? Are they locals,
-arguments or globals? Have they even been declared? We need the full
-symbol table for this.
+这里 `x` 和 `y`
+是什么类型？
+是否兼容？
+它们是局部变量、
+参数，
+还是全局变量？
+甚至它们究竟有没有声明过？
+这些都要求解析器保有完整符号表。
 
-So in [decl.c](decl.c) at the end of `function_declaration()`:
+因此在 [decl.c](decl.c)
+的 `function_declaration()`
+末尾：
 
 ```
   ...
@@ -832,27 +1216,44 @@ So in [decl.c](decl.c) at the end of `function_declaration()`:
 }
 ```
 
-## Reading Symbol Table Nodes
+## 读入符号表节点
 
-The 6809 code generator, code-wise, is pretty big. It takes about 30K
-of RAM, so we have to work hard to not waste the remaining RAM. In
-the code generator, we only load symbols if we need them. And, each
-symbol might require knowledge of one or more symbols, e.g. a variable
-might be of type `struct foo`, so now we need to load the `struct foo`
-symbol and all of the symbols which are the fields of that structure.
+6809 代码生成器本身代码量已经很大了。
+它大概会占掉 30K RAM，
+所以我们必须非常节约剩下的内存。
+在代码生成器这边，
+我们只在真正需要时才加载符号。
+并且，
+一个符号往往还会带出别的符号需求：
+比如某个变量可能是 `struct foo`
+类型，
+那我们就还得继续加载 `struct foo`
+这个符号，
+以及它所有字段成员对应的符号。
 
-An issue is that the symbols are written out in order of when they are
-parsed, but we need to find symbols by their name or by their id.
-Example:
+这里另一个麻烦是：
+符号写出到文件中的顺序，
+是它们被解析到的顺序；
+而我们查找时，
+需要按名称或按 id
+来定位。
+例如：
 
 ```
   struct foo x;
 ```
 
-We have to search for the `x` symbol by name. That node has the `ctypeid` for
-the `foo` symbol, so we need to search for that symbol by id.
+我们需要先按名字找到符号 `x`。
+而 `x`
+节点里又带着 `ctypeid`，
+表示它依赖 `foo`
+那个符号，
+于是我们还得再按 id
+去找这个类型节点。
 
-The majority of the work here is done by `loadSym()` in [sym.c](sym.c):
+绝大部分工作都由 [sym.c](sym.c)
+里的 `loadSym()`
+完成：
 
 ```
 // Given a pointer to a symtable node, read in the next entry
@@ -867,18 +1268,35 @@ static int loadSym(struct symtable *sym, char *name,
 }
 ```
 
-I won't go through the code, but there a few things to note.
-We can search by `stype` and `name`, e.g. an S_FUNCTION called `printf()`.
-We can search by numeric id. Sometimes we want to recursively fetch nodes:
-this happens because a symbol with members (e.g. a struct) gets written
-out immediately followed by the members. Finally, we can just read in
-the next symbol always if `loadit` is set, e.g. when reading in members.
+我就不逐行讲它的实现了，
+只提几个关键点。
+我们可以按 `stype`
+和名字来查，
+比如查一个叫 `printf()`
+的 `S_FUNCTION`。
+也可以按数字 id
+来查。
+有时候我们还需要递归把后续节点一并读进来：
+例如某个带成员的符号
+（像 struct）
+在写出文件时，
+后面会紧跟它的成员节点。
+另外，
+当 `loadit`
+被设置时，
+我们也可以无条件地直接把下一个符号读出来，
+例如在读取成员列表时就会这样。
 
-The `findSyminfile()` function simply goes back to the start of the symbol
-file each time, and loops calling `loadSym()` until either the symbol
-required is found or we reach the end of the file. Not very efficient, is it?
+`findSyminfile()`
+这个函数很简单粗暴：
+每次都回到符号文件开头，
+循环调用 `loadSym()`，
+要么找到需要的符号，
+要么读到文件末尾。
+对，
+这听起来就不怎么高效。
 
-The old compiler code had functions
+旧版编译器里原本就有这些函数：
 
 ```
 struct symtable *findlocl(char *name, int id);
@@ -891,15 +1309,24 @@ struct symtable *findenumval(char *s);
 struct symtable *findtypedef(char *s);
 ```
 
-They are still here, but different. We first search in memory for the
-required symbol, then call `findSyminfile()` if the symbol isn't in
-memory. When a symbol is loaded from the file, it gets linked into the
-in-memory symbol table. Thus, we build up a cache of symbols as the
-code generator needs them.
+它们现在还在，
+但实现不同了。
+流程是：
+先在内存中查找需要的符号；
+如果没找到，
+再调用 `findSyminfile()`。
+而一旦某个符号从文件中被加载进来，
+它就会被挂到当前内存中的符号表里。
+也就是说，
+代码生成器其实在逐步构建一份“按需缓存”的符号表。
 
-To ease memory, we should flush and free the symbol table periodically
-in the code generator. In [cgen.c](cgen.c) which has the main loop for
-the code generator:
+为了节省内存，
+代码生成器也需要定期 flush
+和 free
+内存里的符号表。
+在 [cgen.c](cgen.c)
+中，
+主循环大概是这样：
 
 ```
   while (1) {
@@ -915,41 +1342,68 @@ the code generator:
   }
 ```
 
-One minor issue that bit me when rewriting the compiler was that there
-are global symbols which are initialised and need to have assembly
-instructions generated for them. So, just above the above loop there
-is a call to a function called `allocateGlobals()`. This, in turn,
-calls a function in [sym.c](sym.c) called `loadGlobals()` which
-reads in any global symbols. Now we can call the appropriate
-code generator function as we walk the list of global symbols.
-At the end of `allocateGlobals()` we can `freeSymtable()`.
+我重写编译器时还踩到过一个小坑：
+有些全局符号带初始化值，
+需要生成相应的汇编。
+所以就在上面这个循环之前，
+还会先调用一个叫 `allocateGlobals()`
+的函数。
+它内部又会调用 [sym.c](sym.c)
+里的 `loadGlobals()`，
+把所有全局符号读进来，
+然后我们再遍历全局符号列表，
+调用对应的代码生成器函数。
+`allocateGlobals()`
+结束后，
+就可以再 `freeSymtable()`。
 
-And I've got one last comment. All of this works because there are not
-that many symbols in any C program, also taking into account the header
-files that get included. But if this were a real, production, compiler
-on a real Unix-like system, argh!! A typical program will pull in a
-dozen or so header files, each with dozens of typedefs, structs, enum
-values etc. We would run out of memory in no time.
+最后我想补一句：
+这一套现在能工作，
+是因为单个 C 程序里真正的符号数量
+还没那么夸张，
+即便把头文件里带进来的东西也算上。
+可如果这是一个真实的生产级编译器，
+跑在真正的类 Unix 系统上，
+那情况就会崩掉。
+现实里一个普通程序可能就会引入十来个头文件，
+每个头文件里又有一堆 typedef、
+struct、
+enum
+等等，
+那内存很快就会被吃光。
 
-So this all works but it's not scalable.
+所以这套方案能用，
+但不具备可扩展性。
 
-## Writing AST Nodes
+## 写出 AST 节点
 
-Now on to the AST nodes. The first point I need to make is that there
-simply isn't enough memory to build the AST tree for a function, then
-write it out (or read it in). The bigger functions that we need to
-deal with have 3,000 or more AST nodes. They simply won't fit into 64K
-of RAM by themselves.
+接下来轮到 AST 节点。
+首先必须明确一点：
+内存根本不够你把某个函数的整棵 AST 树构建完，
+再一次性写出
+（或者读回）。
+我们需要处理的较大函数，
+经常会有 3,000 个以上 AST 节点。
+光它们自己就足以压垮 64K RAM。
 
-We can only keep a limited number of AST nodes in memory, but how?
-After all it's a tree. For any node, when do we need the sub-trees below it
-and when can we prune the tree?
+所以，
+我们只能在内存里保留有限数量的 AST 节点。
+但该怎么做？
+毕竟这是一棵树。
+对于任何一个节点，
+它下面的子树到底什么时候还需要，
+什么时候就可以修剪掉？
 
-In the top-level parser file [parse.c](parse.c) there is function called
-`serialiseAST()` which writes the given node and its children out to disk.
-This function gets called in a few places.
+在顶层解析器文件 [parse.c](parse.c)
+里，
+有个 `serialiseAST()`
+函数，
+负责把给定节点及其子节点写到磁盘。
+这个函数会在几处地方被调用。
 
-In `compound_statement()` in [stmt.c](stmt.c):
+例如在 [stmt.c](stmt.c)
+的 `compound_statement()`
+中：
 
 ```
   while (1) {
@@ -971,10 +1425,14 @@ In `compound_statement()` in [stmt.c](stmt.c):
   }
 ```
 
-So, each time there is a single statement, we parse this statement, build
-up the AST tree for it and then dump it to disk.
+也就是说，
+每解析出一条语句，
+我们就为它构建 AST 树，
+然后马上把这棵树写到磁盘。
 
-And at the end of `function_declaration()` in [decl.c](decl.c):
+而在 [decl.c](decl.c)
+的 `function_declaration()`
+末尾：
 
 ```
   // Serialise the tree
@@ -989,11 +1447,12 @@ And at the end of `function_declaration()` in [decl.c](decl.c):
   return (oldfuncsym);
 ```
 
-This writes out the S_FUNCTION node which identifies the top AST node of the
-function.
+这里则是把那个标识“函数顶层 AST 节点”的 `S_FUNCTION`
+节点写出去。
 
-The code snippets above reference `freetree()`. Here it is in
-[tree.c](tree.c):
+上面的代码还提到了 `freetree()`。
+它在 [tree.c](tree.c)
+里是这样的：
 
 ```
 // Free the contents of a tree. Possibly
@@ -1012,39 +1471,68 @@ void freetree(struct ASTnode *tree, int freenames) {
 }
 ```
 
-## Reading AST Nodes
+## 读入 AST 节点
 
-I fought for quite a while to find a good approach for reading AST
-nodes back in to the code generator. We have to do two things:
+我为了找到“怎样把 AST 节点重新读回代码生成器”这件事，
+确实折腾了很久。
+这里要完成两件事：
 
-1. Find each function's top node and read it in.
-2. Once we have an AST node, read in its children using their ids.
+1. 找到每个函数对应的顶层 AST 节点并把它读进来。
+2. 一旦有了某个 AST 节点，
+   就根据它的子节点 id
+   继续把孩子节点读进来。
 
-My first approach was, like the symbol table, rewind to the start
-of the file each time I did a search. OK, so that made the compilation 
-of an 1,000 line file take about 45 minutes. No, that's not good.
+我最开始的方案，
+和符号表一样，
+是每次查找时都回到文件开头重新扫。
+结果如何？
+一份 1,000 行的源文件，
+编译一遍要 45 分钟左右。
+显然这不行。
 
-I did think of trying to cache the numeric ids, type (S_FUNCTION or not)
-and file offset in memory. That's not going to work either. For each
-AST node that would be:
+我也想过，
+是不是可以在内存里缓存所有 AST 节点的
+数字 id、
+类型
+（是否是 `S_FUNCTION`）
+以及文件偏移量。
+但这也行不通。
+对每个 AST 节点来说，
+需要：
 
- - 2 bytes for the id
- - 1 byte for the S_FUNCTION boolean
- - 4 bytes for the file offset
+ - 2 字节存 id
+ - 1 字节存 `S_FUNCTION` 布尔值
+ - 4 字节存文件偏移
 
-An AST file with, say, 3,000 nodes now needs a 21,000 byte cache in memory.
-Ridiculous!
+如果一个 AST 文件有 3,000 个节点，
+那光这个缓存就要 21,000 字节内存。
+太荒唐了。
 
-Instead, I build a list of node file offsets in a separate temporary file.
-This is done by the `mkASTidxfile()` function in [tree.c](tree.c). The file
-is simply a sequence of offset values, each 4 bytes long. Position 0 holds
-the offset for id 0, position 4 the offset for id 1 etc.
+于是我换了个办法：
+额外生成一个独立的临时文件，
+里面保存“节点 id -> 文件偏移量”的映射。
+这是由 [tree.c](tree.c)
+中的 `mkASTidxfile()`
+完成的。
+这个文件的内容非常简单，
+就是一串偏移量值，
+每个占 4 字节。
+位置 0
+记录 id 0
+的偏移，
+位置 4
+记录 id 1
+的偏移，
+依此类推。
 
-As we will need to find each function's top node in turn, and there are
-usually not many functions in a file, I chose to record all the S_FUNCTION
-nodes' offsets in an in-memory list:
+另外，
+由于我们还需要顺序找到每个函数的顶层节点，
+而一个文件里的函数数通常并不算多，
+所以我选择把所有 `S_FUNCTION`
+节点的偏移量另外保存在一份内存列表里。
 
-In [tree.c](tree.c), we have:
+在 [tree.c](tree.c)
+里：
 
 ```
 // We keep an array of AST node offsets that
@@ -1053,12 +1541,18 @@ long *Funcoffset;
 
 ```
 
-This gets `malloc()`d and `realloc()`d and grows to contain all the
-function offsets. The last value is 0 because the id value 0 never
-gets allocated in the parser.
+它会通过 `malloc()`
+和 `realloc()`
+不断扩展，
+直到收集完所有函数偏移。
+最后一个值会是 0，
+因为解析器中 id 0
+从来不会真的分配给 AST 节点。
 
-Now, how do we use all of this information? In the same file there is a
-function called `loadASTnode()`:
+那这些信息最终是怎么用的？
+同样在 [tree.c](tree.c)
+里有一个 `loadASTnode()`
+函数：
 
 ```
 // Given an AST node id, load that AST node from the AST file.
@@ -1069,16 +1563,27 @@ struct ASTnode *loadASTnode(int id, int nextfunc) {
 }
 ```
 
-We can load a node given its id, or we can just load the next S_FUNCTION
-node. We use the temporary file with the offsets to quickly find where
-the node we want is positioned in the main AST file. Nice and simple!
+它既可以按 id
+加载某个节点，
+也可以直接取下一个 `S_FUNCTION`
+节点。
+借助那份偏移索引文件，
+我们就能很快定位到主 AST 文件中想要的节点位置。
+简单直接。
 
-## Using loadASTnode() and Freeing AST nodes
+## 使用 `loadASTnode()` 和释放 AST 节点
 
-Unfortunately, there is not a single place where we can call
-`loadASTnode()`. Anywhere in the architecture-independent generation code
-in [gen.c](gen.c), where we previously used the pointers `n->left`, `n->mid` or
-`n->right`, we now have to call `loadASTnode()`, e.g.
+遗憾的是，
+并不存在某个“只改一处就够了”的位置来调用 `loadASTnode()`。
+在架构无关的生成代码
+[gen.c](gen.c)
+中，
+凡是以前直接使用 `n->left`、
+`n->mid`
+或 `n->right`
+指针的地方，
+现在都必须改成调用 `loadASTnode()`，
+例如：
 
 ```
 // Given an AST, an optional label, and the AST op
@@ -1096,104 +1601,177 @@ int genAST(struct ASTnode *n, int iflabel, int looptoplabel,
 }
 ```
 
-You will find about fifteen calls to `loadASTnode()` in [gen.c](gen.c).
+你会在 [gen.c](gen.c)
+里找到大约 15 处对 `loadASTnode()`
+的调用。
 
-Back in the parser, we could parse a single statement and then call
-`freetree()` once we have written it out to disk. Here in the code
-generator, I decided to be more specific. Once I'd definitely finished
-using an AST node, I call the function `freeASTnode()` defined in
-[tree.c](tree.c) to free its memory. You will find about twelve calls
-to this function in the code generator.
+回到解析器那边，
+我们可以在写出一条语句后，
+立刻对整棵树调用 `freetree()`。
+而在代码生成器这边，
+我决定做得更具体一些。
+一旦我确定某个 AST 节点已经彻底用完，
+就调用 [tree.c](tree.c)
+里的 `freeASTnode()`
+来释放它。
+在代码生成器中，
+大概有 12 处会这样做。
 
-That's about it for the changes to the symbol table and AST node handling.
+关于符号表和 AST 节点的处理改动，
+大致就这些。
 
-## General Memory Freeing
+## 通用内存释放
 
-Back up when I started talking about trying to fit the compiler into 64K,
-my third point was: try to garbage collect unused data structures with
-`free()` wherever we can.
+前面在说“怎样把编译器塞进 64K”时，
+我的第三点是：
+尽可能使用 `free()`
+对不用的数据结构做垃圾回收。
 
-Well, C is probably the worst language to try and do garbage collection!
-For a while I tried to sprinkle `free()`s where I thought they would
-work but then the compiler would either segfault or, worse, use a
-node that had been overwritten and go into crazy behaviour mode.
+而 C 大概是最不适合拿来做垃圾回收的语言之一！
+我有段时间到处试着撒 `free()`，
+觉得哪里应该可以释放就往哪放，
+结果编译器不是直接 segfault，
+就是更糟：
+继续访问一块已经被覆盖的节点内存，
+然后进入彻底疯狂状态。
 
-Fortunately, I've been able to get down to four main functions that
-garbage collect: `freeSym()`, `freeSymtable()`, `freeASTnode()` and
-`freetree()`.
+好在最后我把主要的垃圾回收收敛到了四个函数里：
+`freeSym()`、
+`freeSymtable()`、
+`freeASTnode()`
+和 `freetree()`。
 
-That hasn't solved all the garbage collection issues. I've recently
-resorted to using [Valgrind](https://valgrind.org/) to show me where
-I have memory leaks. I try to find the worst cases and then work out
-where I can insert a `free()` that helps. This has got the compiler
-to the point where it _can_ self-compile on the 6809, but there is
-definitely room for improvement!
+不过这依然没彻底解决所有内存回收问题。
+最近我已经开始借助
+[Valgrind](https://valgrind.org/)
+来找内存泄漏。
+我一般会先盯最严重的几个案例，
+再想办法看看哪里还能插入一个有帮助的 `free()`。
+也正是靠这种方式，
+我总算把编译器推进到了“能够在 6809 上自编译”的程度，
+但显然仍然还有很多改进空间。
 
-## The Peephole Optimiser
+## Peephole 优化器
 
-The peephole optimiser, [cpeep.c](cpeep.c) was originally written
-by Christian W. Fraser in 1984. Looking at the [documentation](docs/copt.1),
-it has been worked on by several people since then. I imported it from the
+这个 peephole 优化器 [cpeep.c](cpeep.c)
+最早是 Christian W. Fraser
+在 1984 年写的。
+从它的 [文档](docs/copt.1)
+来看，
+后来又有好几个人继续维护过。
+我是从
 [Fuzix Compiler Kit](https://github.com/EtchedPixels/Fuzix-Compiler-Kit)
-and changed its name. I also changed the rule termination to be
-`====` instead of a blank line; I find it easier to see where rules end.
+里把它导入进来的，
+同时也改了名字。
+我还把规则终止符从“空行”
+改成了 `====`，
+因为这样我自己看起来更容易分辨规则边界。
 
-The 6809 backend can spit out some bad code. The optimiser helps to
-get rid of some of it. Have a look at the [rules.6809](lib/6809/rules.6809)
-file to see what the rules are; I think I've documented them well enough.
-There is a [test file](tests/input.rules.6809) which I use to check that
-the rules work OK.
+6809 后端有时会吐出相当糟糕的代码。
+这个优化器能帮忙消掉其中一部分。
+你可以去看
+[rules.6809](lib/6809/rules.6809)
+了解有哪些规则；
+我觉得自己已经写了足够多的注释。
+另外我还有一个
+[测试文件](tests/input.rules.6809)，
+专门用来验证这些规则是否工作正常。
 
-## Building and Running the Compiler - QBE
+## 构建并运行编译器：QBE 版本
 
-To build the compiler on a Linux box so that it outputs x68 code, you
-first need to download [QBE 1.2](https://c9x.me/compile/releases.html),
-build it and install the `qbe` binary somewhere on your `$PATH`.
+如果你想在 Linux 机器上构建这个编译器，
+并让它输出 x64 代码，
+那首先需要下载
+[QBE 1.2](https://c9x.me/compile/releases.html)，
+把它编译出来，
+再把 `qbe`
+安装到你的 `$PATH`
+里某个可见位置。
 
-Next, you need to make the `/opt/wcc` directory and make it writable
-by yourself.
+接着，
+你需要创建 `/opt/wcc`
+目录，
+并让它对当前用户可写。
 
-Now you can `make; make install`, which will build the compiler and put
-the executables into `/opt/wcc/bin`, the header files into ``/opt/wcc/include`
-and the 6809 libraries into ``/opt/wcc/lib/6809`.
+然后执行 `make; make install`，
+编译器就会被构建出来。
+可执行文件会安装到 `/opt/wcc/bin`，
+头文件会放到 `/opt/wcc/include`，
+6809 的库文件会放到 `/opt/wcc/lib/6809`。
 
-Now make sure that `/opt/wcc/bin/wcc` (the compiler front-end) is on your
-`$PATH`. I usually put a symlink to it into my private `bin` folder.
+接下来确保 `/opt/wcc/bin/wcc`
+（也就是编译器前端）
+在你的 `$PATH`
+中。
+我自己通常会在私人 `bin`
+目录里做一个指向它的 symlink。
 
-From here, you can `make test` which goes into the `tests/` directory and
-runs all the tests that are in there.
+完成这些之后，
+你就可以执行 `make test`，
+它会进入 `tests/`
+目录并运行里面所有测试。
 
-## Building and Running the Compiler - 6809
+## 构建并运行编译器：6809 版本
 
-This is a bit complicated.
+这一套会复杂一些。
 
-Firstly, you need to download the
-[Fuzix Bintools](https://github.com/EtchedPixels/Fuzix-Bintools),
-and build at least the assembler `as6809` and the linker `ld6809`.
-Now install these somewhere on your `$PATH`.
+首先，
+你需要下载
+[Fuzix Bintools](https://github.com/EtchedPixels/Fuzix-Bintools)，
+至少把其中的汇编器 `as6809`
+和链接器 `ld6809`
+编出来，
+然后把它们安装到你的 `$PATH`
+里。
 
-Next, download my [Fuzemsys](https://github.com/DoctorWkt/Fuzemsys)
-project. This has a 6809 emulator which we need to run the 6809 binaries.
-Go into the `emulators/` directory and `make emu6809`. Once this is
-built, install the emulator somewhere on your `$PATH`.
+接着，
+下载我的
+[Fuzemsys](https://github.com/DoctorWkt/Fuzemsys)
+项目。
+这里面带有一个 6809 模拟器，
+我们需要靠它来运行 6809 的二进制文件。
+进入 `emulators/`
+目录，
+执行 `make emu6809`。
+编译完成后，
+把模拟器也安装到你的 `$PATH`
+里。
 
-If you haven't already, make the `/opt/wcc` directory as before,
-come back to this project and `make; make install` to install it.
-Make sure that `/opt/wcc/bin/wcc` (the compiler front-end) is on your `$PATH`.
+如果你还没建过 `/opt/wcc`
+目录，
+就像前面那样建好它。
+然后回到本项目，
+执行 `make; make install`
+完成安装。
+同样要确保 `/opt/wcc/bin/wcc`
+这个前端程序在你的 `$PATH`
+中。
 
-From here, you can `make 6test` which goes into the `tests/` directory and
-runs all the tests that are in there. This time, we build 6809 binaries
-and use the 6809 emulator to run them.
+接下来，
+你就可以执行 `make 6test`，
+它会进入 `tests/`
+目录并运行所有测试。
+这一次，
+我们生成的是 6809 二进制，
+然后借助 6809 模拟器来运行它们。
 
-## Doing The QBE Triple Test
+## 进行 QBE Triple Test
 
-With `qbe` installed and you have done a `make install; make test` to
-check that the compiler works, you can now do a `make triple`. This:
+当你安装好了 `qbe`，
+也已经完成 `make install; make test`
+确认编译器能正常工作后，
+就可以执行 `make triple`。
+它会：
 
- - builds the compiler with your native compiler,
- - builds the compiler with itself into the `L1` directory,
- - builds the compiler with itself again into the `L2` directory, and
- - checksums the `L1` and `L2` executables to ensure they are identical:
+ - 用你的本机编译器构建编译器，
+ - 用编译器自己再构建一份放到 `L1`
+   目录中，
+ - 再次用它自己构建一份放到 `L2`
+   目录中，
+ - 然后对 `L1`
+   和 `L2`
+   的可执行文件做校验和比较，
+   以确认它们完全一致：
 
 ```
 0f14b990d9a48352c4d883cd550720b3  L1/detok
@@ -1212,20 +1790,33 @@ cb493abe1feed812fb4bb5c958a8cf83  L1/desym
 cb493abe1feed812fb4bb5c958a8cf83  L2/desym
 ```
 
-The `wcc` binaries are different as one has `L1` in the path to find
-the executables for the phases, and the other has `L2` instead.
+这里 `wcc`
+二进制之所以不同，
+是因为一个内部保存的是 `L1`
+目录路径，
+另一个保存的是 `L2`
+目录路径，
+用于定位各编译阶段的可执行文件。
 
-## Doing The 6809 Triple Test
+## 进行 6809 Triple Test
 
-Instead of using the `Makefile` to do this, I have a separate Bash shell
-script called `6809triple_test`. Run this to:
+这件事我没有用 `Makefile`
+直接做，
+而是单独写了一个 Bash 脚本，
+叫 `6809triple_test`。
+运行它会：
 
- - build the compiler with your native compiler,
- - build the 6809 compiler with itself into the `L1` directory, and
- - build the 6809 compiler with itself again into the `L2` directory.
+ - 先用你的本机编译器构建编译器，
+ - 再用编译器自己构建出 6809 版本放到 `L1`
+   目录，
+ - 然后再用它自己构建一遍放到 `L2`
+   目录。
 
-This is slow! On my decent laptop it takes about 45 minutes. Eventually
-you can do your own checksums to verify that the executables are identical:
+这一步非常慢！
+在我那台还算不错的笔记本上，
+也得花大约 45 分钟。
+最后你可以自己做校验和比较，
+确认可执行文件是否完全一致：
 
 ```
 $ md5sum L1/_* L2/_* | sort
@@ -1243,12 +1834,15 @@ e9c8b2c12ea5bd4f62091fafaae45971  L1/_cparse6809
 e9c8b2c12ea5bd4f62091fafaae45971  L2/_cparse6809
 ```
 
-At the moment I'm having problems with running `wcc` as a 6809 executable,
-so I use the x64 `wcc` binary instead.
+目前我在直接运行 6809 可执行版 `wcc`
+时还有些问题，
+所以我现在仍然用 x64
+版本的 `wcc`
+来驱动整个流程。
 
-## Example Command-line Actions
+## 一组实际命令行操作示例
 
-Here is a capture of the commands I used to do all the above:
+下面是我当时用过的整套命令记录：
 
 ```
 # Download the acwj repository
@@ -1303,65 +1897,95 @@ cd /usr/local/src/acwj/64_6809_Target
 ./6809triple_test 
 ```
 
-## Is This Self-Compiling?
+## 这真的算自编译吗
 
-We can pass the triple test with the 6809 CPU. But, is this really
-self-compiling? Well, it is, but it is definitely _not_ self-hosting.
+我们确实可以在 6809 上通过 triple test。
+但问题是：
+这真的算自编译吗？
+答案是：算，
+但它绝对 *不是* self-hosting。
 
-The things that this C compiler _doesn't_ build include:
+这套 C 编译器当前 *无法* 自己构建出来的东西包括：
 
- - a C pre-processor
- - the peephole optimiser
- - the 6809 assembler
- - the 6809 linker
- - an `ar` archiver for the 6809
- - the compiler helper functions, and the C library. At the moment,
-   I'm using the Fuzix Compiler Kit to build these functions. The
-   Fuzix Compiler speaks "real" C; this compiler only speaks a subset
-   of the C language, so it can't build these functions.
+ - C 预处理器
+ - peephole 优化器
+ - 6809 汇编器
+ - 6809 链接器
+ - 面向 6809 的 `ar` 归档器
+ - 编译器辅助函数和 C 库。
+   目前这些仍然是用 Fuzix Compiler Kit
+   来构建的。
+   Fuzix Compiler 能理解“真正的”C，
+   而这个编译器目前只懂 C 的一个子集，
+   所以它还构建不了这些函数。
 
-So, if I wanted to move all of this over to my
-[MMU09 SBC](https://github.com/DoctorWkt/MMU09), then I would need to
-use the Fuzix Compiler to build the assembler, linker, helper functions
-and the C library.
+因此，
+如果我真的想把这一整套东西搬到
+[MMU09 SBC](https://github.com/DoctorWkt/MMU09)
+上，
+那我仍然需要借助 Fuzix Compiler
+去构建汇编器、
+链接器、
+辅助函数
+和 C 库。
 
-Thus, the "acwj" compiler can definitely take pre-processed C source code
-and, using a scanner, a parser and a code generator, output 6809 assembly
-code. And the "acwj" compiler can do the above on its own code.
+换句话说，
+“acwj” 编译器现在确实能够读取“已经预处理过的 C 源码”，
+通过扫描器、
+解析器
+和代码生成器输出 6809 汇编；
+而且它还能对自己的源码做这件事。
 
-That makes our compiler a self-compiling compiler, but not a self-hosting
-compiler!
+这足以说明：
+它是一个 self-compiling compiler，
+但还不是 self-hosting compiler。
 
-## Future Work
+## 后续工作
 
-Right now, this isn't a production compiler. It's not even a proper C
-compiler - it only knows a subset of the C language.
+现在这还不是一套生产级编译器。
+严格来说，
+它甚至都还不是一个完整的 C 编译器，
+因为它只懂 C 语言的一个子集。
 
-Some things to do would be:
+接下来还可以做的事情包括：
 
- - make it more robust
- - get on top of the garbage collection
- - add unsigned types
- - add floats and doubles
- - add more of the real C language to become self-hosting
- - improve the quality of the 6809 code generator
- - improve the speed of the 6809 compiler
- - perhaps, take a big step back, use the lessons
-   learned through this whole journey and rewrite
-   a new compiler from scratch!
+ - 提高健壮性
+ - 继续解决垃圾回收问题
+ - 加入无符号类型
+ - 加入 float 和 double
+ - 支持更多真实 C 语言特性，
+   直到真正变成 self-hosting
+ - 提高 6809 代码生成器的质量
+ - 提高 6809 编译器本身的速度
+ - 或者干脆退后一步，
+   吸收这整个旅程里学到的经验，
+   从零重写一个全新的编译器！
 
-## Conclusion
+## 总结
 
-I'm pretty burned out after this part - it's taken a few months of
-work as evidenced by my [notes](docs/NOTES.md). And we are now up
-to part 64 of the "acwj" journey; that's a good power of two :-)
+做到这一部分时，
+我已经相当疲惫了。
+这几个月的工作量，
+其实从我的
+[笔记](docs/NOTES.md)
+里就能看出来。
+而现在整个 “acwj” 旅程也已经来到第 64 部分；
+这倒还是个不错的二次幂数字 :-)
 
-So I won't say definitely not, but I think this is where I'll end the
-"acwj" journey. If you have followed along through some/most/all of
-the parts, then thank you for spending the time reading my notes.
-I hope it's been useful.
+所以我不能百分之百说“绝对不会再继续”，
+但我觉得这大概就是
+“acwj”
+旅程的终点了。
+如果你一路跟到了这里，
+无论是读过其中一部分、
+大部分，
+还是全部内容，
+都感谢你愿意花时间看完这些笔记。
+我希望它们对你是有帮助的。
 
-And, now, if you need a sort-of C compiler for an 8-bit or 16-bit
-CPU with a limited set of registers, this might be a starting point for you!
+而现在，
+如果你正好需要一套“差不多算 C 编译器”的东西，
+目标又是寄存器不多的 8 位或 16 位 CPU，
+那这份项目也许能成为一个起点。
 
-Cheers, Warren
+Cheers，Warren
