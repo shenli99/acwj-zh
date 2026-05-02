@@ -1,32 +1,53 @@
 site_name: acwj
+site_description: 一个逐步构建可自举 C 子集编译器的实践教程
 theme:
   name: material
   language: zh
   font: false
+  custom_dir: overrides
   features:
     - navigation.top
+    - navigation.tabs
+    - navigation.sections
     - navigation.tracking
     - toc.follow
     - content.code.copy
   palette:
-    - scheme: default
+    - media: "(prefers-color-scheme)"
+      scheme: default
       primary: blue grey
       accent: teal
       toggle:
-        icon: material/weather-night
+        icon: material/brightness-auto
+        name: 跟随系统主题
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/brightness-7
         name: 切换到深色模式
-    - scheme: slate
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
       primary: black
       accent: teal
       toggle:
-        icon: material/weather-sunny
-        name: 切换到浅色模式
+        icon: material/brightness-4
+        name: 切换到跟随系统
 docs_dir: docs
 site_dir: site
 exclude_docs: |
   plans/
 extra_css:
   - stylesheets/extra.css
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
 nav:
   - 首页: index.md
   - 教程:

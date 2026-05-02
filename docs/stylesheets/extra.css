@@ -48,13 +48,23 @@ body {
 }
 
 .md-header {
-  backdrop-filter: saturate(140%) blur(12px);
+  backdrop-filter: saturate(140%) blur(14px);
 }
 
 .md-header,
 .md-header--shadow,
 .md-tabs {
   box-shadow: none;
+}
+
+.md-tabs {
+  background: color-mix(in srgb, var(--md-default-bg-color) 78%, transparent);
+  border-bottom: 1px solid var(--acwj-divider-color);
+}
+
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  color: var(--md-typeset-a-color);
 }
 
 .md-main__inner {
@@ -114,6 +124,13 @@ body {
   padding: 0.15em 0.4em;
 }
 
+.md-typeset .highlight {
+  border: 1px solid var(--acwj-divider-color);
+  border-radius: 0.95rem;
+  overflow: hidden;
+}
+
+.md-typeset .highlight > pre,
 .md-typeset pre > code {
   border-radius: 0.8rem;
 }
@@ -137,8 +154,205 @@ body {
   background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
 }
 
+.md-nav__title,
+.md-nav--primary .md-nav__item--section > .md-nav__link {
+  font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
 .md-top {
   border-radius: 999px;
+}
+
+.acwj-home-hero {
+  padding: 1.2rem 0 0.8rem;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--md-accent-fg-color) 22%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--md-default-bg-color--lighter) 72%, transparent), transparent);
+}
+
+.acwj-home-hero__grid,
+.acwj-appendix-strip__grid {
+  display: grid;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.acwj-home-hero__grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.9fr);
+}
+
+.acwj-home-hero__copy,
+.acwj-home-hero__panel,
+.acwj-stage-card,
+.acwj-appendix-strip__grid {
+  border: 1px solid var(--acwj-divider-color);
+  border-radius: 1.2rem;
+  background: color-mix(in srgb, var(--md-default-bg-color--lighter) 92%, transparent);
+  box-shadow: 0 24px 70px -42px rgba(0, 0, 0, 0.3);
+}
+
+.acwj-home-hero__copy,
+.acwj-home-hero__panel,
+.acwj-appendix-strip__grid {
+  padding: 1.4rem 1.45rem;
+}
+
+.acwj-home-hero__eyebrow,
+.acwj-stage-section__eyebrow,
+.acwj-appendix-strip__eyebrow,
+.acwj-home-hero__label {
+  margin: 0 0 0.55rem;
+  font: 700 0.72rem/1.2 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-typeset-a-color);
+}
+
+.acwj-home-hero__copy h1 {
+  margin: 0;
+  font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: clamp(2rem, 2.5vw, 3rem);
+  line-height: 1.08;
+}
+
+.acwj-home-hero__lead {
+  margin: 1rem 0 0;
+  max-width: 38rem;
+  font-size: 1rem;
+  line-height: 1.9;
+}
+
+.acwj-home-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.2rem;
+}
+
+.acwj-home-hero__panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.acwj-home-hero__facts {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.acwj-home-hero__facts li + li {
+  margin-top: 0.5rem;
+}
+
+.acwj-home-hero__stats {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1.2rem;
+}
+
+.acwj-home-hero__stats div {
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--acwj-divider-color);
+}
+
+.acwj-home-hero__stats span {
+  display: block;
+  font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.acwj-home-hero__stats small {
+  color: var(--md-default-fg-color--light);
+}
+
+.acwj-stage-section {
+  padding: 1rem 0 0.45rem;
+}
+
+.acwj-stage-section__header {
+  margin-bottom: 1rem;
+}
+
+.acwj-stage-section__header h2 {
+  margin: 0 0 0.4rem;
+  font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+.acwj-stage-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.acwj-stage-card {
+  padding: 1.25rem;
+}
+
+.acwj-stage-card__range {
+  margin: 0 0 0.5rem;
+  font: 700 0.72rem/1.2 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.08em;
+  color: var(--md-typeset-a-color);
+}
+
+.acwj-stage-card h3 {
+  margin: 0;
+  font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+.acwj-stage-card > p:not(.acwj-stage-card__range) {
+  min-height: 5.4rem;
+}
+
+.acwj-stage-card__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.acwj-stage-card__links a {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.36rem 0.7rem;
+  background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+  color: var(--md-default-fg-color);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.acwj-stage-card__links a:hover {
+  background: color-mix(in srgb, var(--md-accent-fg-color) 18%, transparent);
+  color: var(--md-typeset-a-color);
+}
+
+.acwj-appendix-strip {
+  padding: 0.45rem 0 1.15rem;
+}
+
+.acwj-appendix-strip__grid {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.acwj-appendix-strip__grid h2 {
+  margin: 0 0 0.35rem;
+  font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+.acwj-home-content > h1:first-of-type {
+  display: none;
+}
+
+.acwj-home-content > ul:first-of-type {
+  column-count: 2;
+  column-gap: 1.4rem;
+  padding-left: 1.2rem;
+}
+
+.acwj-home-content > ul:first-of-type > li {
+  break-inside: avoid;
+  margin-bottom: 0.4rem;
 }
 
 @media (max-width: 76.2344em) {
@@ -148,6 +362,20 @@ body {
 
   .md-sidebar--primary {
     width: 14.2rem;
+  }
+
+  .acwj-home-hero__grid,
+  .acwj-appendix-strip__grid,
+  .acwj-stage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .acwj-stage-card > p:not(.acwj-stage-card__range) {
+    min-height: auto;
+  }
+
+  .acwj-home-content > ul:first-of-type {
+    column-count: 1;
   }
 }
 
@@ -183,5 +411,35 @@ body {
 
   .md-typeset pre {
     margin-inline: -0.2rem;
+  }
+
+  .acwj-home-hero {
+    padding-top: 0.55rem;
+  }
+
+  .acwj-home-hero__copy,
+  .acwj-home-hero__panel,
+  .acwj-stage-card,
+  .acwj-appendix-strip__grid {
+    padding: 1rem;
+    border-radius: 0.95rem;
+  }
+
+  .acwj-home-hero__copy h1 {
+    font-size: 1.8rem;
+  }
+
+  .acwj-home-hero__lead {
+    font-size: 0.92rem;
+  }
+
+  .acwj-home-hero__actions {
+    flex-direction: column;
+  }
+
+  .acwj-home-hero__actions .md-button,
+  .acwj-appendix-strip .md-button {
+    width: 100%;
+    text-align: center;
   }
 }
