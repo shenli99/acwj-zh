@@ -356,6 +356,10 @@ body {
 }
 
 @media (max-width: 76.2344em) {
+  .md-tabs {
+    display: none;
+  }
+
   .md-main__inner {
     margin-top: 0.5rem;
   }
